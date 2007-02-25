@@ -2,6 +2,11 @@
 // WRT54G EJTAG DeBrick Utility ChangeLog
 // =======================================
 
+
++++!!! MODIFIED VERSION BY MICHAEL BUESCH <mb@bu3sch.de> !!!+++
+
+
+
 *** New for v4.5 ***
 
 * Added 6 new Flash Chip Parts to the list:

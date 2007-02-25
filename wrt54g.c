@@ -2,6 +2,13 @@
 //
 //  WRT54G.C - WRT54G/GS EJTAG Debrick Utility  v4.5
 //
+//  +++!!! MODIFIED VERSION BY MICHAEL BUESCH <mb@bu3sch.de> !!!+++
+//
+//	This is a modified version of the original WRT debrick utility
+//	to work with my selfmade wiggler-type active JTAG cable --mb
+//
+//
+//
 //  Note:
 //  This program is for De-Bricking the WRT54G/GS and other misc routers.
 //
@@ -137,8 +144,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/io.h>
 
 #include "wrt54g.h"
+
+
+#define PORT	378
+
 
 static unsigned int ctrl_reg;
 
@@ -397,23 +409,31 @@ static unsigned char clockin(int tms, int tdi)
 
    #else   // ---- Compiler Specific Code ----
 
-      data = (1 << TDO) | (0 << TCK) | (tms << TMS) | (tdi << TDI);
+      data = (1 << TDO) | (0 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
       ioctl(pfd, PPWDATA, &data);
 
-      data = (1 << TDO) | (1 << TCK) | (tms << TMS) | (tdi << TDI);
+      data = (1 << TDO) | (1 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
       ioctl(pfd, PPWDATA, &data);
 
       ioctl(pfd, PPRSTATUS, &data);
 
    #endif
 
-   data ^= 0x80;
-   data >>= TDO;
-   data &= 1;
+data ^= (1 << (TDO - 8));
+data = !!(data & (1 << (TDO - 8)));
 
    return data;
 }
 
+
+static void tdelay(int secs, int nsecs)
+{
+	struct timespec delay;
+
+	delay.tv_sec = secs;
+	delay.tv_nsec = nsecs;
+	nanosleep(&delay, NULL);
+}
 
 // ---------------------------------------
 // ---- End of Compiler Specific Code ----
@@ -1295,10 +1315,12 @@ void sflash_erase_block(unsigned int addr)
         //Unlock Block
         ejtag_write_h(addr, 0x00600060);     // Unlock Flash Block Command
         ejtag_write_h(addr, 0x00D000D0);     // Confirm Command
+	tdelay(2, 0);
 
         //Erase Block
         ejtag_write_h(addr, 0x00200020);     // Block Erase Command
         ejtag_write_h(addr, 0x00D000D0);     // Confirm Command
+	tdelay(5, 0);
 
         while (ejtag_read_h(FLASH_MEMORY_START) != 0x0080) {}
 
@@ -1392,11 +1414,13 @@ unsigned int data_lo, data_hi;
        // Handle Half Of Word
        ejtag_write_h(addr, 0x00400040);           // Write Command
        ejtag_write_h(addr, data_lo);              // Send HalfWord Data
+	tdelay(0, 700);
        while (ejtag_read_h(addr) != 0x0080) {}    // Wait for completion of write
        
        // Now Handle Other Half Of Word
        ejtag_write_h(addr+2, 0x00400040);         // Write Command
        ejtag_write_h(addr+2, data_hi);            // Send HalfWord Data
+	tdelay(0, 700);
        while (ejtag_read_h(addr) != 0x0080) {}    // Wait for completion of write
     }
 }
@@ -1413,6 +1437,8 @@ void show_usage(void)
            "        compatible routers via EJTAG using either DMA Access routines\n"
            "        or PrAcc routines (slower/more compatible).  Processor chips\n"
            "        supported in this version include the following chips:\n\n"
+	   " !!! This is a modified version by Michael Buesch <mb@bu3sch.de>\n"
+	   " !!! This version works with an active wiggler-type JTAG cable.\n\n"
            "            Supported Chips\n"
            "            ---------------\n");
 
