@@ -144,7 +144,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/io.h>
 
 #include "wrt54g.h"
 
