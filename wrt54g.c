@@ -916,7 +916,7 @@ void run_backup(char *filename, unsigned int start, unsigned int length)
     time_t end_time, elapsed_seconds;
 
     struct tm* lt = localtime(&start_time);
-    char time_str[15];
+    char time_str[16];
     
     sprintf(time_str, "%04d%02d%02d_%02d%02d%02d",
         lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
