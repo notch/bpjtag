@@ -208,6 +208,7 @@ processor_chip_type  processor_chip_list[] = {
    { 0x2471217F, 8, "Broadcom BCM4712 Rev 2 CPU" },
    { 0x0535017F, 8, "Broadcom BCM5350 Rev 1 CPU" },
    { 0x0535217F, 8, "Broadcom BCM5352 Rev 1 CPU" },
+   { 0x2535417F, 8, "Broadcom BCM5354 CPU" },
    { 0x0536517F, 8, "Broadcom BCM5365 Rev 1 CPU" },         // BCM5365 Not Completely Verified Yet
    { 0x0634817F, 5, "Broadcom BCM6348 Rev 1 CPU" },   
    { 0x0634517F, 5, "Broadcom BCM6345 Rev 1 CPU" },         // BCM6345 Not Completely Verified Yet
@@ -270,6 +271,12 @@ typedef struct _flash_chip_type {
 
 
 flash_chip_type  flash_chip_list[] = {
+   // Select these manually
+   { 0xDEAD, 0xBEEF, size8MB, CMD_TYPE_AMD, "MX29LV640DB (8MB)"   ,8,size8K,  127,size64K,    0,0,   0,0  },
+   { 0xDEAD, 0xBEEF, size8MB, CMD_TYPE_AMD, "MX29LV640DT (8MB)"   ,127,size64K,  8,size8K,    0,0,   0,0  },
+
+   // Can be auto probed...
+
    { 0x0001, 0x2249, size2MB, CMD_TYPE_AMD, "AMD 29lv160DB 1Mx16 BotB   (2MB)"   ,1,size16K,    2,size8K,     1,size32K,  31,size64K },
    { 0x0001, 0x22c4, size2MB, CMD_TYPE_AMD, "AMD 29lv160DT 1Mx16 TopB   (2MB)"   ,31,size64K,   1,size32K,    2,size8K,   1,size16K  },
    { 0x0001, 0x22f9, size4MB, CMD_TYPE_AMD, "AMD 29lv320DB 2Mx16 BotB   (4MB)"   ,8,size8K,     63,size64K,   0,0,        0,0        },
