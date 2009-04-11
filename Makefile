@@ -1,4 +1,4 @@
-CFLAGS = -Wall -O2 -fomit-frame-pointer
+CFLAGS = -Wall -O2 -fomit-frame-pointer -std=c99 -D_GNU_SOURCE
 
 BIN = debrick
 OBJS = debrick.o
@@ -9,7 +9,7 @@ $(BIN): $(OBJS)
 	gcc $(CFLAGS) -o $@ $(OBJS)
 
 clean:
-	rm -rf *.o
+	rm -rf *.o *~
 
 distclean: clean
 	rm -rf $(BIN)

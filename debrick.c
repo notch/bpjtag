@@ -1,185 +1,77 @@
-// **************************************************************************
-//
-//  WRT54G.C - WRT54G/GS EJTAG Debrick Utility  v4.5
-//
-//  +++!!! MODIFIED VERSION BY MICHAEL BUESCH <mb@bu3sch.de> !!!+++
-//
-//      This is a modified version of the original WRT debrick utility
-//      to work with my selfmade wiggler-type active JTAG cable --mb
-//
-//
-//
-//  Note:
-//  This program is for De-Bricking the WRT54G/GS and other misc routers.
-//
-//  New for v4.5 - Added 2 new Flash Chip Parts to the list:
-//                     - K8D1716UTC 1Mx16 TopB      (2MB)
-//                     - K8D1716UBC 1Mx16 BotB      (2MB)
-//
-//  New for v4.4 - Added PrAcc routines to support additional MIPS chips
-//                 without the ability to use EJTAG DMA Access
-//               - Added Chip ID for Broadcom BCM5365 Rev 1 CPU
-//               - Added Chip ID for Broadcom BCM6348 Rev 1 CPU (Big Endian)
-//               - Added Chip ID for Broadcom BCM6345 Rev 1 CPU
-//               - Added 6 new Flash Chip Parts to the list:
-//                     - SST39VF1601 1Mx16 BotB     (2MB)
-//                     - SST39VF1602 1Mx16 TopB     (2MB)
-//                     - SST39VF3201 2Mx16 BotB     (4MB)
-//                     - SST39VF3202 2Mx16 TopB     (4MB)
-//                     - SST39VF6401 4Mx16 BotB     (8MB)
-//                     - SST39VF6402 4Mx16 TopB     (8MB)
-//               - Added the following New Switch Options
-//                     - /noemw ............. prevent Enabling Memory Writes
-//                     - /nocwd ............. prevent Clearing CPU Watchdog Timer
-//                     - /dma ............... force use of DMA routines
-//                     - /nodma ............. force use of PRACC routines (No DMA)
-//                     - /window:XXXXXXXX ... custom flash window base (in HEX)
-//                     - /start:XXXXXXXX .... custom start location (in HEX)
-//                     - /length:XXXXXXXX ... custom length (in HEX)
-//                     - /silent ............ prevent scrolling display of data
-//                     - /skipdetect ........ skip auto detection of CPU Chip ID
-//                     - /instrlen:XX ....... set instruction length manually
-//               - Added elapsed time to Backup, Erase, and Flash routines
-//               - Other minor miscellaneous changes/additions.
-//
-//  New for v4.3 - Corrected Macronix Flash Chip Block Defintions.
-//               - Add 8 new Flash Chip Parts to the list:
-//                     - AT49BV/LV16X 2Mx16 BotB    (4MB)
-//                     - AT49BV/LV16XT 2Mx16 TopB   (4MB)
-//                     - MBM29LV160B 1Mx16 BotB     (2MB)
-//                     - MBM29LV160T 1Mx16 TopB     (2MB)
-//                     - MX29LV161B 1Mx16 BotB      (2MB)
-//                     - MX29LV161T 1Mx16 TopB      (2MB)
-//                     - ST M29W160EB 1Mx16 BotB    (2MB)
-//                     - ST M29W160ET 1Mx16 TopB    (2MB)
-//
-//  New for v4.2 - Changed the chip_detect routine to allow for easier
-//                 additions of new chip id's.
-//               - Added detection support for the Broadcom BCM5350 chip.
-//               - Fixed DMA routines to check status bit that was
-//                 removed in prior version.
-//               - Removed clockout routine in an effort to speed up access.
-//               - Changed clockin routine in an effort to speed up access.
-//               - Changed ReadData and WriteData routines to merely call
-//                 ReadWriteData routine.
-//               - Removed Defines from .h file and placed flash areas in a
-//                 structure list for easier maintenance should they change.
-//               - Miscellaneous other minor changes.
-//
-// **************************************************************************
-//
-//  wrt54g: read/write flash memory via EJTAG
-//   usage: wrt54g [parameter] </noreset> </noemw> </nocwd> </nobreak> </noerase>
-//                             </notimestamp> </dma> </nodma>
-//                             <start:XXXXXXXX> </length:XXXXXXXX>
-//                             </silent> </skipdetect> </instrlen:XX> </fc:XX>
-//
-//              Required Parameter
-//              ------------------
-//              -backup:cfe
-//              -backup:nvram
-//              -backup:kernel
-//              -backup:wholeflash
-//              -backup:custom
-//              -erase:cfe
-//              -erase:nvram
-//              -erase:kernel
-//              -erase:wholeflash
-//              -erase:custom
-//              -flash:cfe
-//              -flash:nvram
-//              -flash:kernel
-//              -flash:wholeflash
-//              -flash:custom
-//
-//              Optional Switches
-//              -----------------
-//              /noreset ........... prevent Issuing EJTAG CPU reset
-//              /noemw ............. prevent Enabling Memory Writes
-//              /nocwd ............. prevent Clearing CPU Watchdog Timer
-//              /nobreak ........... prevent Issuing Debug Mode JTAGBRK
-//              /noerase ........... prevent Forced Erase before Flashing
-//              /notimestamp ....... prevent Timestamping of Backups
-//              /dma ............... force use of DMA routines
-//              /nodma ............. force use of PRACC routines (No DMA)
-//              /start:XXXXXXXX .... custom start location (in HEX)
-//              /length:XXXXXXXX ... custom length (in HEX)
-//              /silent ............ prevent scrolling display of data
-//              /skipdetect ........ skip auto detection of CPU Chip ID
-//              /instrlen:XX ....... set instruction length manually
-//              /fc:XX = Optional (Manual) Flash Chip Selection
-//
-// **************************************************************************
-//  Written by HairyDairyMaid (a.k.a. - lightbulb)
-//  hairydairymaid@yahoo.com
-// **************************************************************************
-//
-//  This program is copyright (C) 2004 HairyDairyMaid (a.k.a. Lightbulb)
-//  This program is free software; you can redistribute it and/or modify it
-//  under the terms of version 2 the GNU General Public License as published
-//  by the Free Software Foundation.
-//  This program is distributed in the hope that it will be useful, but WITHOUT
-//  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-//  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-//  more details.
-//  To view a copy of the license go to:
-//  http://www.fsf.org/copyleft/gpl.html
-//  To receive a copy of the GNU General Public License write the Free Software
-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//
-// **************************************************************************
+/****************************************************************************
+ *
+ *  Broadcom-MIPS EJTAG Debrick Utility
+ *
+ *  Copyright (C) 2009 Michael Buesch <mb@bu3sch.de>
+ *  Copyright (C) 2004 HairyDairyMaid (a.k.a. Lightbulb)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of version 2 the GNU General Public License as published
+ *  by the Free Software Foundation.
+ *  This program is distributed in the hope that it will be useful, but WITHOUT
+ *  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ *  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ *  more details.
+ *  To view a copy of the license go to:
+ *  http://www.fsf.org/copyleft/gpl.html
+ *  To receive a copy of the GNU General Public License write the Free Software
+ *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ ****************************************************************************/
 
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <errno.h>
+#include <getopt.h>
 
 #include "debrick.h"
 
-#define PORT	378
 
 static unsigned int ctrl_reg;
 
-int pfd;
-int instruction_length;
-int issue_reset = 1;
-int issue_enable_mw = 1;
-int issue_watchdog = 1;
-int issue_break = 1;
-int issue_erase = 1;
-int issue_timestamp = 1;
-int force_dma = 0;
-int force_nodma = 0;
-int selected_fc = 0;
-unsigned int selected_window = 0;
-unsigned int selected_start = 0;
-unsigned int selected_length = 0;
-int custom_options = 0;
-int silent_mode = 0;
-int skipdetect = 0;
-int instrlen = 0;
+static int pfd;
+static const char *parport_path = "/dev/parport0";
+static int instruction_length;
+static int issue_reset = 1;
+static int issue_enable_mw = 1;
+static int issue_watchdog = 1;
+static int issue_break = 1;
+static int issue_erase = 1;
+static int issue_timestamp = 1;
+static int force_dma = 0;
+static int force_nodma = 0;
+static int selected_fc = 0;
+static unsigned int selected_window = 0;
+static unsigned int selected_start = 0;
+static unsigned int selected_length = 0;
+static int custom_options = 0;
+static int silent_mode = 0;
+static int skipdetect = 0;
+static int instrlen = 0;
 
-char flash_part[128];
-unsigned int flash_size = 0;
+static char flash_part[128];
+static unsigned int flash_size = 0;
 
-int block_total = 0;
-unsigned int block_addr = 0;
-unsigned int blocks[1024];
-unsigned int cmd_type = 0;
+static int block_total = 0;
+static unsigned int block_addr = 0;
+static unsigned int blocks[1024];
+static unsigned int cmd_type = 0;
 
-char AREA_NAME[128];
-unsigned int AREA_START;
-unsigned int AREA_LENGTH;
-unsigned int FLASH_MEMORY_START;
-unsigned int vendid;
-unsigned int devid;
+static char AREA_NAME[128];
+static unsigned int AREA_START;
+static unsigned int AREA_LENGTH;
+static unsigned int FLASH_MEMORY_START;
+static unsigned int vendid;
+static unsigned int devid;
 
-unsigned int data_register;
-unsigned int address_register;
+static unsigned int data_register;
+static unsigned int address_register;
 
-int USE_DMA = 0;
-int ejtag_version = 0;
+static int USE_DMA = 0;
+static int ejtag_version = 0;
 
 typedef struct _processor_chip_type {
 	unsigned int chip_id;	// Processor Chip ID
@@ -208,7 +100,7 @@ typedef struct _flash_area_type {
 	unsigned int area_length;
 } flash_area_type;
 
-flash_area_type flash_area_list[] = {
+static flash_area_type flash_area_list[] = {
 	//---------   ----------     -----------  ------------
 	//chip_size   area_name      area_start   area_length
 	//---------   ----------     -----------  ------------
@@ -251,7 +143,7 @@ typedef struct _flash_chip_type {
 	unsigned int region4_size;	// Region 4 block size
 } flash_chip_type;
 
-flash_chip_type flash_chip_list[] = {
+static flash_chip_type flash_chip_list[] = {
 	// Select these manually
 	{0xDEAD, 0xBEEF, size8MB, CMD_TYPE_AMD, "MX29LV640DB (8MB)", 8, size8K, 127,
 	 size64K, 0, 0, 0, 0},
@@ -387,44 +279,26 @@ flash_chip_type flash_chip_list[] = {
 
 void lpt_openport(void)
 {
-#ifdef __FreeBSD__
-
-	pfd = open("/dev/ppi0", O_RDWR);
+	pfd = open(parport_path, O_RDWR);
 	if (pfd < 0) {
-		perror("Failed to open /dev/ppi0");
+		fprintf(stderr, "Failed to open %s: %s\n",
+			parport_path, strerror(errno));
 		exit(0);
 	}
 	if ((ioctl(pfd, PPEXCL) < 0) || (ioctl(pfd, PPCLAIM) < 0)) {
-		perror("Failed to lock /dev/ppi0");
+		fprintf(stderr, "Failed to lock %s: %s\n",
+			parport_path, strerror(errno));
 		close(pfd);
 		exit(0);
 	}
-#else
-
-	pfd = open("/dev/parport0", O_RDWR);
-	if (pfd < 0) {
-		perror("Failed to open /dev/parport0");
-		exit(0);
-	}
-	if ((ioctl(pfd, PPEXCL) < 0) || (ioctl(pfd, PPCLAIM) < 0)) {
-		perror("Failed to lock /dev/parport0");
-		close(pfd);
-		exit(0);
-	}
-#endif
 }
 
 void lpt_closeport(void)
 {
-#ifndef __FreeBSD__		// ---- Compiler Specific Code ----
-
 	if (ioctl(pfd, PPRELEASE) < 0) {
-		perror("Failed to release /dev/parport0");
-		close(pfd);
-		exit(0);
+		fprintf(stderr, "Failed to release %s: %s\n",
+			parport_path, strerror(errno));
 	}
-#endif
-
 	close(pfd);
 }
 
@@ -1452,7 +1326,7 @@ void sflash_write_word(unsigned int addr, unsigned int data)
 	}
 }
 
-void show_usage(void)
+static void show_usage(int argc, char **argv)
 {
 
 	flash_chip_type *flash_chip = flash_chip_list;
@@ -1463,8 +1337,6 @@ void show_usage(void)
 	       "        compatible routers via EJTAG using either DMA Access routines\n"
 	       "        or PrAcc routines (slower/more compatible).  Processor chips\n"
 	       "        supported in this version include the following chips:\n\n"
-	       " !!! This is a modified version by Michael Buesch <mb@bu3sch.de>\n"
-	       " !!! This version works with an active wiggler-type JTAG cable.\n\n"
 	       "            Supported Chips\n" "            ---------------\n");
 
 	while (processor_chip->chip_id) {
@@ -1474,39 +1346,46 @@ void show_usage(void)
 
 	printf("\n\n");
 	printf
-	    (" USAGE: wrt54g [parameter] </noreset> </noemw> </nocwd> </nobreak> </noerase>\n"
-	     "                      </notimestamp> </dma> </nodma>\n"
-	     "                      <start:XXXXXXXX> </length:XXXXXXXX>\n"
-	     "                      </silent> </skipdetect> </instrlen:XX> </fc:XX>\n\n"
-	     "            Required Parameter\n" "            ------------------\n"
-	     "            -backup:cfe\n" "            -backup:nvram\n"
-	     "            -backup:kernel\n" "            -backup:wholeflash\n"
-	     "            -backup:custom\n" "            -erase:cfe\n"
-	     "            -erase:nvram\n" "            -erase:kernel\n"
-	     "            -erase:wholeflash\n" "            -erase:custom\n"
-	     "            -flash:cfe\n" "            -flash:nvram\n"
-	     "            -flash:kernel\n" "            -flash:wholeflash\n"
-	     "            -flash:custom\n\n" "            Optional Switches\n"
-	     "            -----------------\n"
-	     "            /noreset ........... prevent Issuing EJTAG CPU reset\n"
-	     "            /noemw ............. prevent Enabling Memory Writes\n"
-	     "            /nocwd ............. prevent Clearing CPU Watchdog Timer\n"
-	     "            /nobreak ........... prevent Issuing Debug Mode JTAGBRK\n"
-	     "            /noerase ........... prevent Forced Erase before Flashing\n"
-	     "            /notimestamp ....... prevent Timestamping of Backups\n"
-	     "            /dma ............... force use of DMA routines\n"
-	     "            /nodma ............. force use of PRACC routines (No DMA)\n"
-	     "            /window:XXXXXXXX ... custom flash window base (in HEX)\n"
-	     "            /start:XXXXXXXX .... custom start location (in HEX)\n"
-	     "            /length:XXXXXXXX ... custom length (in HEX)\n"
-	     "            /silent ............ prevent scrolling display of data\n"
-	     "            /skipdetect ........ skip auto detection of CPU Chip ID\n"
-	     "            /instrlen:XX ....... set instruction length manually\n\n"
-	     "            /fc:XX = Optional (Manual) Flash Chip Selection\n"
-	     "            -----------------------------------------------\n");
+	    (" USAGE: %s ACTION <--noreset> <--noemw> <--nocwd> <--nobreak> <--noerase>\n"
+	     "                      <--notimestamp> <--dma 1/0>\n"
+	     "                      <--start XXXXXXXX> <--length XXXXXXXX>\n"
+	     "                      <--silent> <--skipdetect> <--instrlen XX> <--flashchip XX>\n\n"
+	     "            Required ACTION Parameter\n\n"
+	     "            --backup cfe\n"
+	     "            --backup nvram\n"
+	     "            --backup kernel\n"
+	     "            --backup wholeflash\n"
+	     "            --backup custom\n"
+	     "            --erase cfe\n"
+	     "            --erase nvram\n"
+	     "            --erase kernel\n"
+	     "            --erase wholeflash\n"
+	     "            --erase custom\n"
+	     "            --flash cfe\n"
+	     "            --flash nvram\n"
+	     "            --flash kernel\n"
+	     "            --flash wholeflash\n"
+	     "            --flash custom\n\n"
+	     "            Optional Switches\n\n"
+	     "            --noreset ........... prevent Issuing EJTAG CPU reset\n"
+	     "            --noemw ............. prevent Enabling Memory Writes\n"
+	     "            --nocwd ............. prevent Clearing CPU Watchdog Timer\n"
+	     "            --nobreak ........... prevent Issuing Debug Mode JTAGBRK\n"
+	     "            --noerase ........... prevent Forced Erase before Flashing\n"
+	     "            --notimestamp ....... prevent Timestamping of Backups\n"
+	     "            --dma 1/0 ........... force use of DMA/PRACC routines\n"
+	     "            --window XXXXXXXX ... custom flash window base (in HEX)\n"
+	     "            --start XXXXXXXX .... custom start location (in HEX)\n"
+	     "            --length XXXXXXXX ... custom length (in HEX)\n"
+	     "            --silent ............ prevent scrolling display of data\n"
+	     "            --skipdetect ........ skip auto detection of CPU Chip ID\n"
+	     "            --instrlen XX ....... set instruction length manually\n\n"
+	     "            --flashchip XX = Optional (Manual) Flash Chip Selection\n"
+	     "            -----------------------------------------------\n",
+	     argv[0]);
 
 	while (flash_chip->vendid) {
-		printf("            /fc:%02d ............. %-40.40s\n", ++counter,
+		printf("            --flashchip %02d ....... %-40.40s\n", ++counter,
 		       flash_chip->flash_part);
 		flash_chip++;
 	}
@@ -1522,157 +1401,161 @@ void show_usage(void)
 	       "           chips *may* always require both these options to function properly.\n\n"
 	       "        4) When using this utility, usually it is best to type the command line\n"
 	       "           out, then plug in the router, and then hit <ENTER> quickly to avoid\n"
-	       "           the CPUs watchdog interfering with the EJTAG operations.\n\n"
-	       " ***************************************************************************\n"
-	       " * Flashing the KERNEL or WHOLEFLASH will take a very long time using JTAG *\n"
-	       " * via this utility.  You are better off flashing the CFE & NVRAM files    *\n"
-	       " * & then using the normal TFTP method to flash the KERNEL via ethernet.   *\n"
-	       " ***************************************************************************\n\n");
+	       "           the CPUs watchdog interfering with the EJTAG operations.\n\n");
 }
+
+static struct option long_options[] = {
+	{ "help",		no_argument,		0, 'h', },
+	{ "backup",		required_argument,	0, 'b', },
+	{ "erase",		required_argument,	0, 'e', },
+	{ "flash",		required_argument,	0, 'f', },
+	{ "noreset",		no_argument,		0, 'r', },
+	{ "noemw",		no_argument,		0, 'm', },
+	{ "nocwd",		no_argument,		0, 'W', },
+	{ "nobreak",		no_argument,		0, 'B', },
+	{ "noerase",		no_argument,		0, 'E', },
+	{ "notimestamp",	no_argument,		0, 't', },
+	{ "dma",		required_argument,	0, 'd', },
+	{ "window",		required_argument,	0, 'w', },
+	{ "start",		required_argument,	0, 's', },
+	{ "length",		required_argument,	0, 'l', },
+	{ "silent",		no_argument,		0, 'S', },
+	{ "skipdetect",		no_argument,		0, 'D', },
+	{ "instrlen",		required_argument,	0, 'i', },
+	{ "flashchip",		required_argument,	0, 'F', },
+	{ NULL, },
+};
 
 int main(int argc, char **argv)
 {
-	char choice[128];
 	int run_option;
-	int j;
+	int c, idx;
 
 	printf("\n");
-	printf("====================================\n");
-	printf("WRT54G/GS EJTAG Debrick Utility v4.5\n");
-	printf("====================================\n\n");
-
-	if (argc < 2) {
-		show_usage();
-		exit(1);
-	}
-
-	strcpy(choice, argv[1]);
+	printf("===================================\n");
+	printf("Broadcom-MIPS EJTAG Debrick Utility\n");
+	printf("===================================\n\n");
 
 	run_option = 0;
-
-	if (strcasecmp(choice, "-backup:cfe") == 0) {
-		run_option = 1;
-		strcpy(AREA_NAME, "CFE");
-	}
-	if (strcasecmp(choice, "-backup:nvram") == 0) {
-		run_option = 1;
-		strcpy(AREA_NAME, "NVRAM");
-	}
-	if (strcasecmp(choice, "-backup:kernel") == 0) {
-		run_option = 1;
-		strcpy(AREA_NAME, "KERNEL");
-	}
-	if (strcasecmp(choice, "-backup:wholeflash") == 0) {
-		run_option = 1;
-		strcpy(AREA_NAME, "WHOLEFLASH");
-	}
-	if (strcasecmp(choice, "-backup:custom") == 0) {
-		run_option = 1;
-		strcpy(AREA_NAME, "CUSTOM");
-		custom_options++;
-	}
-
-	if (strcasecmp(choice, "-erase:cfe") == 0) {
-		run_option = 2;
-		strcpy(AREA_NAME, "CFE");
-	}
-	if (strcasecmp(choice, "-erase:nvram") == 0) {
-		run_option = 2;
-		strcpy(AREA_NAME, "NVRAM");
-	}
-	if (strcasecmp(choice, "-erase:kernel") == 0) {
-		run_option = 2;
-		strcpy(AREA_NAME, "KERNEL");
-	}
-	if (strcasecmp(choice, "-erase:wholeflash") == 0) {
-		run_option = 2;
-		strcpy(AREA_NAME, "WHOLEFLASH");
-	}
-	if (strcasecmp(choice, "-erase:custom") == 0) {
-		run_option = 2;
-		strcpy(AREA_NAME, "CUSTOM");
-		custom_options++;
-	}
-
-	if (strcasecmp(choice, "-flash:cfe") == 0) {
-		run_option = 3;
-		strcpy(AREA_NAME, "CFE");
-	}
-	if (strcasecmp(choice, "-flash:nvram") == 0) {
-		run_option = 3;
-		strcpy(AREA_NAME, "NVRAM");
-	}
-	if (strcasecmp(choice, "-flash:kernel") == 0) {
-		run_option = 3;
-		strcpy(AREA_NAME, "KERNEL");
-	}
-	if (strcasecmp(choice, "-flash:wholeflash") == 0) {
-		run_option = 3;
-		strcpy(AREA_NAME, "WHOLEFLASH");
-	}
-	if (strcasecmp(choice, "-flash:custom") == 0) {
-		run_option = 3;
-		strcpy(AREA_NAME, "CUSTOM");
-		custom_options++;
-	}
-
-	if (run_option == 0) {
-		show_usage();
-		printf("\n*** ERROR - Invalid [option] specified ***\n\n");
-		exit(1);
-	}
-
-	if (argc > 2) {
-		j = 2;
-		while (j < argc) {
-			strcpy(choice, argv[j]);
-
-			if (strcasecmp(choice, "/noreset") == 0)
-				issue_reset = 0;
-			else if (strcasecmp(choice, "/noemw") == 0)
-				issue_enable_mw = 0;
-			else if (strcasecmp(choice, "/nocwd") == 0)
-				issue_watchdog = 0;
-			else if (strcasecmp(choice, "/nobreak") == 0)
-				issue_break = 0;
-			else if (strcasecmp(choice, "/noerase") == 0)
-				issue_erase = 0;
-			else if (strcasecmp(choice, "/notimestamp") == 0)
-				issue_timestamp = 0;
-			else if (strcasecmp(choice, "/dma") == 0)
-				force_dma = 1;
-			else if (strcasecmp(choice, "/nodma") == 0)
-				force_nodma = 1;
-			else if (strncasecmp(choice, "/fc:", 4) == 0)
-				selected_fc = strtoul(((char *)choice + 4), NULL, 10);
-			else if (strncasecmp(choice, "/window:", 8) == 0) {
-				selected_window = strtoul(((char *)choice + 8), NULL, 16);
-				custom_options++;
-			} else if (strncasecmp(choice, "/start:", 7) == 0) {
-				selected_start = strtoul(((char *)choice + 7), NULL, 16);
-				custom_options++;
-			} else if (strncasecmp(choice, "/length:", 8) == 0) {
-				selected_length = strtoul(((char *)choice + 8), NULL, 16);
-				custom_options++;
-			} else if (strcasecmp(choice, "/silent") == 0)
-				silent_mode = 1;
-			else if (strcasecmp(choice, "/skipdetect") == 0)
-				skipdetect = 1;
-			else if (strncasecmp(choice, "/instrlen:", 10) == 0)
-				instrlen = strtoul(((char *)choice + 10), NULL, 10);
-			else {
-				show_usage();
-				printf
-				    ("\n*** ERROR - Invalid <option> specified ***\n\n");
-				exit(1);
+	while (1) {
+		c = getopt_long(argc, argv, "hb:e:f:rmWBEtd:w:s:l:SDi:F:",
+				long_options, &idx);
+		if (c == -1)
+			break;
+		switch (c) {
+		case 'h': /* --help */
+			show_usage(argc, argv);
+			return 0;
+		case 'b': /* --backup */
+			run_option = 1;
+			if (strcasecmp(optarg, "cfe") == 0) {
+				strcpy(AREA_NAME, "CFE");
+			} else if (strcasecmp(optarg, "nvram") == 0) {
+				strcpy(AREA_NAME, "NVRAM");
+			} else if (strcasecmp(optarg, "kernel") == 0) {
+				strcpy(AREA_NAME, "KERNEL");
+			} else if (strcasecmp(optarg, "wholeflash") == 0) {
+				strcpy(AREA_NAME, "WHOLEFLASH");
+			} else if (strcasecmp(optarg, "custom") == 0) {
+				strcpy(AREA_NAME, "CUSTOM");
+			} else {
+				fprintf(stderr, "Invalid argument to -backup\n");
+				return 1;
 			}
-			j++;
+			break;
+		case 'e': /* --erase */
+			run_option = 2;
+			if (strcasecmp(optarg, "cfe") == 0) {
+				strcpy(AREA_NAME, "CFE");
+			} else if (strcasecmp(optarg, "nvram") == 0) {
+				strcpy(AREA_NAME, "NVRAM");
+			} else if (strcasecmp(optarg, "kernel") == 0) {
+				strcpy(AREA_NAME, "KERNEL");
+			} else if (strcasecmp(optarg, "wholeflash") == 0) {
+				strcpy(AREA_NAME, "WHOLEFLASH");
+			} else if (strcasecmp(optarg, "custom") == 0) {
+				strcpy(AREA_NAME, "CUSTOM");
+			} else {
+				fprintf(stderr, "Invalid argument to -erase\n");
+				return 1;
+			}
+			break;
+		case 'f': /* --flash */
+			run_option = 3;
+			if (strcasecmp(optarg, "cfe") == 0) {
+				strcpy(AREA_NAME, "CFE");
+			} else if (strcasecmp(optarg, "nvram") == 0) {
+				strcpy(AREA_NAME, "NVRAM");
+			} else if (strcasecmp(optarg, "kernel") == 0) {
+				strcpy(AREA_NAME, "KERNEL");
+			} else if (strcasecmp(optarg, "wholeflash") == 0) {
+				strcpy(AREA_NAME, "WHOLEFLASH");
+			} else if (strcasecmp(optarg, "custom") == 0) {
+				strcpy(AREA_NAME, "CUSTOM");
+			} else {
+				fprintf(stderr, "Invalid argument to -flash\n");
+				return 1;
+			}
+			break;
+		case 'r': /* --noreset */
+			issue_reset = 0;
+			break;
+		case 'm': /* --noemw */
+			issue_enable_mw = 0;
+			break;
+		case 'W': /* --nocwd */
+			issue_watchdog = 0;
+			break;
+		case 'B': /* --nobreak */
+			issue_break = 0;
+			break;
+		case 'E': /* --noerase */
+			issue_erase = 0;
+			break;
+		case 't': /* --notimestamp */
+			issue_timestamp = 0;
+			break;
+		case 'd': /* --dma */
+			if (strtoul(optarg, NULL, 10))
+				force_dma = 1;
+			else
+				force_nodma = 1;
+			break;
+		case 'w': /* --window */
+			selected_window = strtoul(optarg, NULL, 16);
+			break;
+		case 's': /* --start */
+			selected_start = strtoul(optarg, NULL, 16);
+			break;
+		case 'l': /* --length */
+			selected_length = strtoul(optarg, NULL, 16);
+			break;
+		case 'S': /* --silent */
+			silent_mode = 1;
+			break;
+		case 'D': /* --skipdetect */
+			skipdetect = 1;
+			break;
+		case 'i': /* --instrlen */
+			instrlen = strtoul(optarg, NULL, 10);
+			break;
+		case 'F': /* --flashchip */
+			selected_fc = strtoul(optarg, NULL, 10);
+			break;
+		default:
+			fprintf(stderr, "Unknown argument\n");
+			exit(1);
 		}
 	}
 
+	if (run_option == 0) {
+		show_usage(argc, argv);
+		printf("No action (backup/erase/flash) specified\n");
+		exit(1);
+	}
 	if (strcasecmp(AREA_NAME, "CUSTOM") == 0) {
 		if ((custom_options != 0) && (custom_options != 4)) {
-			show_usage();
+			show_usage(argc, argv);
 			printf
 			    ("\n*** ERROR - 'CUSTOM' also requires '/window' '/start' and '/length' options ***\n\n");
 			exit(1);
@@ -1771,7 +1654,3 @@ int main(int argc, char **argv)
 
 	return 0;
 }
-
-// **************************************************************************
-// End of File
-// **************************************************************************

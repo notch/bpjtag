@@ -214,7 +214,6 @@ void sflash_erase_block(unsigned int addr);
 void sflash_probe(void);
 void sflash_reset(void);
 void sflash_write_word(unsigned int addr, unsigned int data);
-void show_usage(void);
 void ShowData(unsigned int value);
 void test_reset(void);
 void WriteData(unsigned int in_data);
