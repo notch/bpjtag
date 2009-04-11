@@ -850,17 +850,18 @@ static void run_backup(char *filename, unsigned int start, unsigned int length)
 	for (addr = start; addr < (start + length); addr += 4) {
 		counter += 4;
 		percent_complete = (counter * 100 / length);
-		if (!silent_mode)
+		if (!silent_mode) {
 			if ((addr & 0xF) == 0)
-				printf("[%3d%% Backed Up]   %08x: ", percent_complete,
-				       addr);
+				printf("[%3d%% Backed Up]   %08x: ", percent_complete, addr);
+		}
 
 		data = ejtag_read(addr);
 		fwrite((unsigned char *)&data, 1, sizeof(data), fd);
 
-		if (silent_mode)
-			printf("%4d%%   bytes = %d\r", percent_complete, counter);
-		else
+		if (silent_mode) {
+			if ((counter & 0x3FF) == 0)
+				printf("%4d%%   bytes = %d\r", percent_complete, counter);
+		} else
 			printf("%08x%c", data, (addr & 0xF) == 0xC ? '\n' : ' ');
 
 		fflush(stdout);
@@ -1091,10 +1092,10 @@ static void run_flash(char *filename, unsigned int start, unsigned int length)
 	for (addr = start; addr < (start + length); addr += 4) {
 		counter += 4;
 		percent_complete = (counter * 100 / length);
-		if (!silent_mode)
+		if (!silent_mode) {
 			if ((addr & 0xF) == 0)
-				printf("[%3d%% Flashed]   %08x: ", percent_complete,
-				       addr);
+				printf("[%3d%% Flashed]   %08x: ", percent_complete, addr);
+		}
 
 		fread((unsigned char *)&data, 1, sizeof(data), fd);
 		// Erasing Flash Sets addresses to 0xFF's so we can avoid writing these (for speed)
@@ -1104,9 +1105,10 @@ static void run_flash(char *filename, unsigned int start, unsigned int length)
 		} else
 			sflash_write_word(addr, data);	// Otherwise we gotta flash it all
 
-		if (silent_mode)
-			printf("%4d%%   bytes = %d\r", percent_complete, counter);
-		else
+		if (silent_mode) {
+			if ((counter & 0x3FF) == 0)
+				printf("%4d%%   bytes = %d\r", percent_complete, counter);
+		} else
 			printf("%08x%c", data, (addr & 0xF) == 0xC ? '\n' : ' ');
 
 		fflush(stdout);
