@@ -366,15 +366,14 @@ static void set_instr(int instr)
 	if (instr == curinstr)
 		return;
 
-	clockin(1, 0);		// enter select-dr-scan
-	clockin(1, 0);		// enter select-ir-scan
-	clockin(0, 0);		// enter capture-ir
-	clockin(0, 0);		// enter shift-ir (dummy)
-	for (i = 0; i < instruction_length; i++) {
+	clockin(1, 0);		/* enter select-dr-scan */
+	clockin(1, 0);		/* enter select-ir-scan */
+	clockin(0, 0);		/* enter capture-ir */
+	clockin(0, 0);		/* enter shift-ir (dummy) */
+	for (i = 0; i < instruction_length; i++)
 		clockin(i == (instruction_length - 1), (instr >> i) & 1);
-	}
-	clockin(1, 0);		// enter update-ir
-	clockin(0, 0);		// enter runtest-idle
+	clockin(1, 0);		/* enter update-ir */
+	clockin(0, 0);		/* enter runtest-idle */
 
 	curinstr = instr;
 }
@@ -385,26 +384,35 @@ static unsigned int ReadWriteData(unsigned int in_data)
 	unsigned int out_data = 0;
 	unsigned char out_bit;
 
-	clockin(1, 0);		// enter select-dr-scan
-	clockin(0, 0);		// enter capture-dr
-	clockin(0, 0);		// enter shift-dr
+	clockin(1, 0);		/* enter select-dr-scan */
+	clockin(0, 0);		/* enter capture-dr */
+	clockin(0, 0);		/* enter shift-dr */
 	for (i = 0; i < 32; i++) {
 		out_bit = clockin_tdo((i == 31), ((in_data >> i) & 1));
 		out_data = out_data | (out_bit << i);
 	}
-	clockin(1, 0);		// enter update-dr
-	clockin(0, 0);		// enter runtest-idle
+	clockin(1, 0);		/* enter update-dr */
+	clockin(0, 0);		/* enter runtest-idle */
+
 	return out_data;
 }
 
 static inline unsigned int ReadData(void)
 {
-	return ReadWriteData(0x00);
+	return ReadWriteData(0);
 }
 
-static inline void WriteData(unsigned int in_data)
+static void WriteData(unsigned int in_data)
 {
-	ReadWriteData(in_data);
+	int i;
+
+	clockin(1, 0);		/* enter select-dr-scan */
+	clockin(0, 0);		/* enter capture-dr */
+	clockin(0, 0);		/* enter shift-dr */
+	for (i = 0; i < 32; i++)
+		clockin((i == 31), ((in_data >> i) & 1));
+	clockin(1, 0);		/* enter update-dr */
+	clockin(0, 0);		/* enter runtest-idle */
 }
 
 static void ShowData(unsigned int value)
