@@ -423,7 +423,7 @@ static void ShowData(unsigned int value)
 	printf(" (%08X)\n", value);
 }
 
-static unsigned int ejtag_dma_read(unsigned int addr)
+static inline unsigned int __ejtag_dma_read(unsigned int addr, unsigned int wordctl)
 {
 	unsigned int data;
 	int retries = RETRY_ATTEMPTS;
@@ -436,7 +436,7 @@ begin_ejtag_dma_read:
 
 	// Initiate DMA Read & set DSTRT
 	set_instr(INSTR_CONTROL);
-	ctrl_reg = ReadWriteData(DMAACC | DRWN | DMA_WORD | DSTRT | PROBEN | PRACC);
+	ctrl_reg = ReadWriteData(DMAACC | DRWN | wordctl | DSTRT | PROBEN | PRACC);
 
 	// Wait for DSTRT to Clear
 	while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT) ;
@@ -458,37 +458,16 @@ begin_ejtag_dma_read:
 	return (data);
 }
 
+static unsigned int ejtag_dma_read(unsigned int addr)
+{
+	return __ejtag_dma_read(addr, DMA_WORD);
+}
+
 static unsigned int ejtag_dma_read_h(unsigned int addr)
 {
 	unsigned int data;
-	int retries = RETRY_ATTEMPTS;
 
-begin_ejtag_dma_read_h:
-
-	// Setup Address
-	set_instr(INSTR_ADDRESS);
-	WriteData(addr);
-
-	// Initiate DMA Read & set DSTRT
-	set_instr(INSTR_CONTROL);
-	ctrl_reg = ReadWriteData(DMAACC | DRWN | DMA_HALFWORD | DSTRT | PROBEN | PRACC);
-
-	// Wait for DSTRT to Clear
-	while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT) ;
-
-	// Read Data
-	set_instr(INSTR_DATA);
-	data = ReadData();
-
-	// Clear DMA & Check DERR
-	set_instr(INSTR_CONTROL);
-	if (ReadWriteData(PROBEN | PRACC) & DERR) {
-		if (retries--)
-			goto begin_ejtag_dma_read_h;
-		else
-			printf("DMA Read Addr = %08x  Data = (%08x)ERROR ON READ\n", addr,
-			       data);
-	}
+	data = __ejtag_dma_read(addr, DMA_HALFWORD);
 	// Handle the bigendian/littleendian
 	if (addr & 0x2)
 		data = (data >> 16) & 0xffff;
@@ -498,7 +477,8 @@ begin_ejtag_dma_read_h:
 	return (data);
 }
 
-static void ejtag_dma_write(unsigned int addr, unsigned int data)
+static inline void __ejtag_dma_write(unsigned int addr, unsigned int wordctl,
+				     unsigned int data)
 {
 	int retries = RETRY_ATTEMPTS;
 
@@ -514,7 +494,7 @@ begin_ejtag_dma_write:
 
 	// Initiate DMA Write & set DSTRT
 	set_instr(INSTR_CONTROL);
-	ctrl_reg = ReadWriteData(DMAACC | DMA_WORD | DSTRT | PROBEN | PRACC);
+	ctrl_reg = ReadWriteData(DMAACC | wordctl | DSTRT | PROBEN | PRACC);
 
 	// Wait for DSTRT to Clear
 	while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT) ;
@@ -529,35 +509,14 @@ begin_ejtag_dma_write:
 	}
 }
 
+static void ejtag_dma_write(unsigned int addr, unsigned int data)
+{
+	__ejtag_dma_write(addr, DMA_WORD, data);
+}
+
 static void ejtag_dma_write_h(unsigned int addr, unsigned int data)
 {
-	int retries = RETRY_ATTEMPTS;
-
-begin_ejtag_dma_write_h:
-
-	// Setup Address
-	set_instr(INSTR_ADDRESS);
-	WriteData(addr);
-
-	// Setup Data
-	set_instr(INSTR_DATA);
-	WriteData(data);
-
-	// Initiate DMA Write & set DSTRT
-	set_instr(INSTR_CONTROL);
-	ctrl_reg = ReadWriteData(DMAACC | DMA_HALFWORD | DSTRT | PROBEN | PRACC);
-
-	// Wait for DSTRT to Clear
-	while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT) ;
-
-	// Clear DMA & Check DERR
-	set_instr(INSTR_CONTROL);
-	if (ReadWriteData(PROBEN | PRACC) & DERR) {
-		if (retries--)
-			goto begin_ejtag_dma_write_h;
-		else
-			printf("DMA Write Addr = %08x  Data = ERROR ON WRITE\n", addr);
-	}
+	__ejtag_dma_write(addr, DMA_HALFWORD, data);
 }
 
 static void ExecuteDebugModule(unsigned int *pmodule)
