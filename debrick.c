@@ -299,7 +299,7 @@ static void lpt_closeport(void)
 	close(pfd);
 }
 
-static unsigned char clockin(int tms, int tdi)
+static inline unsigned char clockin(int tms, int tdi)
 {
 	unsigned char data;
 
@@ -378,12 +378,12 @@ static unsigned int ReadWriteData(unsigned int in_data)
 	return out_data;
 }
 
-static unsigned int ReadData(void)
+static inline unsigned int ReadData(void)
 {
 	return ReadWriteData(0x00);
 }
 
-static void WriteData(unsigned int in_data)
+static inline void WriteData(unsigned int in_data)
 {
 	ReadWriteData(in_data);
 }
