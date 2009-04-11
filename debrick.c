@@ -49,6 +49,7 @@ static int custom_options = 0;
 static int silent_mode = 0;
 static int skipdetect = 0;
 static int instrlen = 0;
+static int ludicrous_speed = 0;
 
 static char flash_part[128];
 static unsigned int flash_size = 0;
@@ -436,24 +437,29 @@ begin_ejtag_dma_read:
 	set_instr(INSTR_CONTROL);
 	WriteData(DMAACC | DRWN | wordctl | DSTRT | PROBEN | PRACC);
 
-	// Wait for DSTRT to Clear
-	while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT) ;
+	if (!ludicrous_speed) {
+		// Wait for DSTRT to Clear
+		while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT)
+			;
+	}
 
 	// Read Data
 	set_instr(INSTR_DATA);
 	data = ReadData();
 
-	// Clear DMA & Check DERR
-	set_instr(INSTR_CONTROL);
-	if (ReadWriteData(PROBEN | PRACC) & DERR) {
-		if (retries--)
-			goto begin_ejtag_dma_read;
-		else
-			printf("DMA Read Addr = %08x  Data = (%08x)ERROR ON READ\n", addr,
-			       data);
+	if (!ludicrous_speed) {
+		// Clear DMA & Check DERR
+		set_instr(INSTR_CONTROL);
+		if (ReadWriteData(PROBEN | PRACC) & DERR) {
+			if (retries--)
+				goto begin_ejtag_dma_read;
+			else
+				printf("DMA Read Addr = %08x  Data = (%08x)ERROR ON READ\n",
+				       addr, data);
+		}
 	}
 
-	return (data);
+	return data;
 }
 
 static unsigned int ejtag_dma_read(unsigned int addr)
@@ -472,7 +478,7 @@ static unsigned int ejtag_dma_read_h(unsigned int addr)
 	else
 		data = (data & 0x0000ffff);
 
-	return (data);
+	return data;
 }
 
 static inline void __ejtag_dma_write(unsigned int addr, unsigned int wordctl,
@@ -494,16 +500,19 @@ begin_ejtag_dma_write:
 	set_instr(INSTR_CONTROL);
 	WriteData(DMAACC | wordctl | DSTRT | PROBEN | PRACC);
 
-	// Wait for DSTRT to Clear
-	while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT) ;
+	if (!ludicrous_speed) {
+		// Wait for DSTRT to Clear
+		while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT)
+			;
 
-	// Clear DMA & Check DERR
-	set_instr(INSTR_CONTROL);
-	if (ReadWriteData(PROBEN | PRACC) & DERR) {
-		if (retries--)
-			goto begin_ejtag_dma_write;
-		else
-			printf("DMA Write Addr = %08x  Data = ERROR ON WRITE\n", addr);
+		// Clear DMA & Check DERR
+		set_instr(INSTR_CONTROL);
+		if (ReadWriteData(PROBEN | PRACC) & DERR) {
+			if (retries--)
+				goto begin_ejtag_dma_write;
+			else
+				printf("DMA Write Addr = %08x  Data = ERROR ON WRITE\n", addr);
+		}
 	}
 }
 
@@ -643,7 +652,7 @@ static void ejtag_pracc_write_h(unsigned int addr, unsigned int data)
 	ExecuteDebugModule(pracc_writehalf_code_module);
 }
 
-static unsigned int ejtag_read(unsigned int addr)
+static inline unsigned int ejtag_read(unsigned int addr)
 {
 	if (USE_DMA)
 		return (ejtag_dma_read(addr));
@@ -651,7 +660,7 @@ static unsigned int ejtag_read(unsigned int addr)
 		return (ejtag_pracc_read(addr));
 }
 
-static unsigned int ejtag_read_h(unsigned int addr)
+static inline unsigned int ejtag_read_h(unsigned int addr)
 {
 	if (USE_DMA)
 		return (ejtag_dma_read_h(addr));
@@ -659,7 +668,7 @@ static unsigned int ejtag_read_h(unsigned int addr)
 		return (ejtag_pracc_read_h(addr));
 }
 
-static void ejtag_write(unsigned int addr, unsigned int data)
+static inline void ejtag_write(unsigned int addr, unsigned int data)
 {
 	if (USE_DMA)
 		ejtag_dma_write(addr, data);
@@ -667,7 +676,7 @@ static void ejtag_write(unsigned int addr, unsigned int data)
 		ejtag_pracc_write(addr, data);
 }
 
-static void ejtag_write_h(unsigned int addr, unsigned int data)
+static inline void ejtag_write_h(unsigned int addr, unsigned int data)
 {
 	if (USE_DMA)
 		ejtag_dma_write_h(addr, data);
@@ -1055,12 +1064,8 @@ static void run_flash(char *filename, unsigned int start, unsigned int length)
 		}
 
 		fread((unsigned char *)&data, 1, sizeof(data), fd);
-		// Erasing Flash Sets addresses to 0xFF's so we can avoid writing these (for speed)
-		if (issue_erase) {
-			if (!(data == 0xFFFFFFFF))
-				sflash_write_word(addr, data);
-		} else
-			sflash_write_word(addr, data);	// Otherwise we gotta flash it all
+		if (data != 0xFFFFFFFF)
+			sflash_write_word(addr, data);
 
 		if (silent_mode) {
 			if ((counter & 0x3FF) == 0)
@@ -1342,7 +1347,10 @@ static void show_usage(int argc, char **argv)
 	     "            --length XXXXXXXX ... custom length (in HEX)\n"
 	     "            --silent ............ prevent scrolling display of data\n"
 	     "            --skipdetect ........ skip auto detection of CPU Chip ID\n"
-	     "            --instrlen XX ....... set instruction length manually\n\n"
+	     "            --instrlen XX ....... set instruction length manually\n"
+	     "            --ludicrous-speed ... Remove read of lowlevel busy-flags. Brings\n"
+	     "                                  huge(!) speedup, but risks data corruption\n"
+	     "                                  on slow embedded CPUs.\n\n"
 	     "            --flashchip XX = Optional (Manual) Flash Chip Selection\n"
 	     "            -----------------------------------------------\n",
 	     argv[0]);
@@ -1354,17 +1362,10 @@ static void show_usage(int argc, char **argv)
 	}
 
 	printf("\n\n");
-	printf(" NOTES: 1) If 'flashing' - the source filename must exist as follows:\n"
-	       "           CFE.BIN, NVRAM.BIN, KERNEL.BIN, WHOLEFLASH.BIN or CUSTOM.BIN\n\n"
-	       "        2) If you have difficulty auto-detecting a particular flash part\n"
-	       "           you can manually specify your exact part using the /fc:XX option.\n\n"
-	       "        3) If you have difficulty with the older bcm47xx chips or when no CFE\n"
+	printf("           If you have difficulty with the older bcm47xx chips or when no CFE\n"
 	       "           is currently active/operational you may want to try both the\n"
 	       "           /noreset and /nobreak command line options together.  Some bcm47xx\n"
-	       "           chips *may* always require both these options to function properly.\n\n"
-	       "        4) When using this utility, usually it is best to type the command line\n"
-	       "           out, then plug in the router, and then hit <ENTER> quickly to avoid\n"
-	       "           the CPUs watchdog interfering with the EJTAG operations.\n\n");
+	       "           chips *may* always require both these options to function properly.\n\n");
 }
 
 static struct option long_options[] = {
@@ -1387,6 +1388,7 @@ static struct option long_options[] = {
 	{ "instrlen",		required_argument,	0, 'i', },
 	{ "flashchip",		required_argument,	0, 'c', },
 	{ "parport",		required_argument,	0, 'p', },
+	{ "ludicrous-speed",	no_argument,		0, 'L', },
 	{ NULL, },
 };
 
@@ -1402,7 +1404,7 @@ int main(int argc, char **argv)
 
 	run_option = 0;
 	while (1) {
-		c = getopt_long(argc, argv, "hF:b:e:f:rmWBEd:w:s:l:SDi:c:p:",
+		c = getopt_long(argc, argv, "hF:b:e:f:rmWBEd:w:s:l:SDi:c:p:L",
 				long_options, &idx);
 		if (c == -1)
 			break;
@@ -1508,6 +1510,9 @@ int main(int argc, char **argv)
 			break;
 		case 'p': /* --parport */
 			strncpy(parport_path, optarg, sizeof(parport_path) - 1);
+			break;
+		case 'L': /* ludicrous-speed */
+			ludicrous_speed = 1;
 			break;
 		default:
 			fprintf(stderr, "Unknown argument\n");

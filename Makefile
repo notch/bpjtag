@@ -1,4 +1,5 @@
 CFLAGS = -Wall -O2 -fomit-frame-pointer -std=c99 -D_GNU_SOURCE
+CC = gcc
 
 BIN = debrick
 OBJS = debrick.o
