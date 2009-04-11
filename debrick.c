@@ -30,8 +30,6 @@
 #include "debrick.h"
 
 
-static unsigned int ctrl_reg;
-
 static int pfd;
 static char parport_path[4096];
 static char inout_filename[4096];
@@ -436,7 +434,7 @@ begin_ejtag_dma_read:
 
 	// Initiate DMA Read & set DSTRT
 	set_instr(INSTR_CONTROL);
-	ctrl_reg = ReadWriteData(DMAACC | DRWN | wordctl | DSTRT | PROBEN | PRACC);
+	WriteData(DMAACC | DRWN | wordctl | DSTRT | PROBEN | PRACC);
 
 	// Wait for DSTRT to Clear
 	while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT) ;
@@ -494,7 +492,7 @@ begin_ejtag_dma_write:
 
 	// Initiate DMA Write & set DSTRT
 	set_instr(INSTR_CONTROL);
-	ctrl_reg = ReadWriteData(DMAACC | wordctl | DSTRT | PROBEN | PRACC);
+	WriteData(DMAACC | wordctl | DSTRT | PROBEN | PRACC);
 
 	// Wait for DSTRT to Clear
 	while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT) ;
@@ -1558,7 +1556,7 @@ int main(int argc, char **argv)
 	printf("Issuing Processor / Peripheral Reset ... ");
 	if (issue_reset) {
 		set_instr(INSTR_CONTROL);
-		ctrl_reg = ReadWriteData(PRRST | PERRST);
+		WriteData(PRRST | PERRST);
 		printf("Done\n");
 	} else
 		printf("Skipped\n");
@@ -1584,7 +1582,7 @@ int main(int argc, char **argv)
 	printf("Halting Processor ... ");
 	if (issue_break) {
 		set_instr(INSTR_CONTROL);
-		ctrl_reg = ReadWriteData(PRACC | PROBEN | SETDEV | JTAGBRK);
+		WriteData(PRACC | PROBEN | SETDEV | JTAGBRK);
 		if (ReadWriteData(PRACC | PROBEN | SETDEV) & BRKST)
 			printf("<Processor Entered Debug Mode!> ... ");
 		else
