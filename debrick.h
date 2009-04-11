@@ -116,42 +116,7 @@
 #define MIPS_VIRTUAL_ADDRESS_ACCESS         0xFF200000
 #define MIPS_VIRTUAL_DATA_ACCESS            0xFF200004
 
-// --- Uhh, Just Because I Have To ---
-void chip_detect(void);
-void chip_shutdown(void);
-static unsigned char clockin(int tms, int tdi);
-void define_block(unsigned int block_count, unsigned int block_size);
-static unsigned int ejtag_read(unsigned int addr);
-static unsigned int ejtag_read_h(unsigned int addr);
-void ejtag_write(unsigned int addr, unsigned int data);
-void ejtag_write_h(unsigned int addr, unsigned int data);
-static unsigned int ejtag_dma_read(unsigned int addr);
-static unsigned int ejtag_dma_read_h(unsigned int addr);
-void ejtag_dma_write(unsigned int addr, unsigned int data);
-void ejtag_dma_write_h(unsigned int addr, unsigned int data);
-static unsigned int ejtag_pracc_read(unsigned int addr);
-void ejtag_pracc_write(unsigned int addr, unsigned int data);
-static unsigned int ejtag_pracc_read_h(unsigned int addr);
-void ejtag_pracc_write_h(unsigned int addr, unsigned int data);
-void identify_flash_part(void);
-void lpt_closeport(void);
-void lpt_openport(void);
-static unsigned int ReadData(void);
-static unsigned int ReadWriteData(unsigned int in_data);
-void run_backup(char *filename, unsigned int start, unsigned int length);
-void run_flash(char *filename, unsigned int start, unsigned int length);
-void set_instr(int instr);
-void sflash_config(void);
-void sflash_erase_area(unsigned int start, unsigned int length);
-void sflash_erase_block(unsigned int addr);
-void sflash_probe(void);
-void sflash_reset(void);
-void sflash_write_word(unsigned int addr, unsigned int data);
-void ShowData(unsigned int value);
-void test_reset(void);
-void WriteData(unsigned int in_data);
-void ExecuteDebugModule(unsigned int *pmodule);
-void check_ejtag_features(void);
+
 
 unsigned int pracc_readword_code_module[] = {
 	// #

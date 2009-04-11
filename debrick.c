@@ -273,11 +273,27 @@ static flash_chip_type flash_chip_list[] = {
 	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 };
 
-// -----------------------------------------
-// ---- Start of Compiler Specific Code ----
-// -----------------------------------------
 
-void lpt_openport(void)
+
+static void chip_shutdown(void);
+static void define_block(unsigned int block_count, unsigned int block_size);
+static unsigned int ejtag_dma_read(unsigned int addr);
+static unsigned int ejtag_dma_read_h(unsigned int addr);
+static void ejtag_dma_write(unsigned int addr, unsigned int data);
+static void ejtag_dma_write_h(unsigned int addr, unsigned int data);
+static unsigned int ejtag_pracc_read(unsigned int addr);
+static void ejtag_pracc_write(unsigned int addr, unsigned int data);
+static unsigned int ejtag_pracc_read_h(unsigned int addr);
+static void ejtag_pracc_write_h(unsigned int addr, unsigned int data);
+static unsigned int ReadWriteData(unsigned int in_data);
+static void sflash_erase_area(unsigned int start, unsigned int length);
+static void sflash_erase_block(unsigned int addr);
+static void sflash_reset(void);
+static void sflash_write_word(unsigned int addr, unsigned int data);
+static void ExecuteDebugModule(unsigned int *pmodule);
+
+
+static void lpt_openport(void)
 {
 	pfd = open(parport_path, O_RDWR);
 	if (pfd < 0) {
@@ -293,7 +309,7 @@ void lpt_openport(void)
 	}
 }
 
-void lpt_closeport(void)
+static void lpt_closeport(void)
 {
 	if (ioctl(pfd, PPRELEASE) < 0) {
 		fprintf(stderr, "Failed to release %s: %s\n",
@@ -332,11 +348,7 @@ static void tdelay(int secs, int nsecs)
 	nanosleep(&delay, NULL);
 }
 
-// ---------------------------------------
-// ---- End of Compiler Specific Code ----
-// ---------------------------------------
-
-void test_reset(void)
+static void test_reset(void)
 {
 	clockin(1, 0);		// Run through a handful of clock cycles with TMS high to make sure
 	clockin(1, 0);		// we are in the TEST-LOGIC-RESET state.
@@ -346,7 +358,7 @@ void test_reset(void)
 	clockin(0, 0);		// enter runtest-idle
 }
 
-void set_instr(int instr)
+static void set_instr(int instr)
 {
 	int i;
 	static int curinstr = 0xFFFFFFFF;
@@ -390,12 +402,12 @@ static unsigned int ReadData(void)
 	return ReadWriteData(0x00);
 }
 
-void WriteData(unsigned int in_data)
+static void WriteData(unsigned int in_data)
 {
 	ReadWriteData(in_data);
 }
 
-void ShowData(unsigned int value)
+static void ShowData(unsigned int value)
 {
 	int i;
 	for (i = 0; i < 32; i++)
@@ -419,7 +431,7 @@ static unsigned int ejtag_read_h(unsigned int addr)
 		return (ejtag_pracc_read_h(addr));
 }
 
-void ejtag_write(unsigned int addr, unsigned int data)
+static void ejtag_write(unsigned int addr, unsigned int data)
 {
 	if (USE_DMA)
 		ejtag_dma_write(addr, data);
@@ -427,7 +439,7 @@ void ejtag_write(unsigned int addr, unsigned int data)
 		ejtag_pracc_write(addr, data);
 }
 
-void ejtag_write_h(unsigned int addr, unsigned int data)
+static void ejtag_write_h(unsigned int addr, unsigned int data)
 {
 	if (USE_DMA)
 		ejtag_dma_write_h(addr, data);
@@ -510,7 +522,7 @@ begin_ejtag_dma_read_h:
 	return (data);
 }
 
-void ejtag_dma_write(unsigned int addr, unsigned int data)
+static void ejtag_dma_write(unsigned int addr, unsigned int data)
 {
 	int retries = RETRY_ATTEMPTS;
 
@@ -541,7 +553,7 @@ begin_ejtag_dma_write:
 	}
 }
 
-void ejtag_dma_write_h(unsigned int addr, unsigned int data)
+static void ejtag_dma_write_h(unsigned int addr, unsigned int data)
 {
 	int retries = RETRY_ATTEMPTS;
 
@@ -580,7 +592,7 @@ static unsigned int ejtag_pracc_read(unsigned int addr)
 	return (data_register);
 }
 
-void ejtag_pracc_write(unsigned int addr, unsigned int data)
+static void ejtag_pracc_write(unsigned int addr, unsigned int data)
 {
 	address_register = addr | 0xA0000000;	// Force to use uncached segment
 	data_register = data;
@@ -595,14 +607,14 @@ static unsigned int ejtag_pracc_read_h(unsigned int addr)
 	return (data_register);
 }
 
-void ejtag_pracc_write_h(unsigned int addr, unsigned int data)
+static void ejtag_pracc_write_h(unsigned int addr, unsigned int data)
 {
 	address_register = addr | 0xA0000000;	// Force to use uncached segment
 	data_register = data;
 	ExecuteDebugModule(pracc_writehalf_code_module);
 }
 
-void ExecuteDebugModule(unsigned int *pmodule)
+static void ExecuteDebugModule(unsigned int *pmodule)
 {
 	unsigned int ctrl_reg;
 	unsigned int address;
@@ -698,7 +710,7 @@ void ExecuteDebugModule(unsigned int *pmodule)
 	}
 }
 
-void chip_detect(void)
+static void chip_detect(void)
 {
 	unsigned int id = 0x0;
 
@@ -760,7 +772,7 @@ void chip_detect(void)
 	exit(0);
 }
 
-void check_ejtag_features()
+static void check_ejtag_features()
 {
 	unsigned int features;
 
@@ -798,14 +810,14 @@ void check_ejtag_features()
 	printf("\n");
 }
 
-void chip_shutdown(void)
+static void chip_shutdown(void)
 {
 	fflush(stdout);
 	test_reset();
 	lpt_closeport();
 }
 
-void run_backup(char *filename, unsigned int start, unsigned int length)
+static void run_backup(char *filename, unsigned int start, unsigned int length)
 {
 	unsigned int addr, data;
 	FILE *fd;
@@ -860,7 +872,7 @@ void run_backup(char *filename, unsigned int start, unsigned int length)
 	printf("elapsed time: %d seconds\n", (int)elapsed_seconds);
 }
 
-void run_flash(char *filename, unsigned int start, unsigned int length)
+static void run_flash(char *filename, unsigned int start, unsigned int length)
 {
 	unsigned int addr, data;
 	FILE *fd;
@@ -923,7 +935,7 @@ void run_flash(char *filename, unsigned int start, unsigned int length)
 	printf("elapsed time: %d seconds\n", (int)elapsed_seconds);
 }
 
-void run_erase(unsigned int start, unsigned int length)
+static void run_erase(unsigned int start, unsigned int length)
 {
 	time_t start_time = time(0);
 	time_t end_time, elapsed_seconds;
@@ -946,7 +958,7 @@ void run_erase(unsigned int start, unsigned int length)
 	printf("elapsed time: %d seconds\n", (int)elapsed_seconds);
 }
 
-void identify_flash_part(void)
+static void identify_flash_part(void)
 {
 	flash_chip_type *flash_chip = flash_chip_list;
 	flash_area_type *flash_area = flash_area_list;
@@ -1029,7 +1041,7 @@ void identify_flash_part(void)
 	}
 }
 
-void define_block(unsigned int block_count, unsigned int block_size)
+static void define_block(unsigned int block_count, unsigned int block_size)
 {
 	unsigned int i;
 
@@ -1043,7 +1055,7 @@ void define_block(unsigned int block_count, unsigned int block_size)
 	}
 }
 
-void sflash_config(void)
+static void sflash_config(void)
 {
 	flash_chip_type *flash_chip = flash_chip_list;
 	int counter = 0;
@@ -1066,7 +1078,7 @@ void sflash_config(void)
 
 }
 
-void sflash_probe(void)
+static void sflash_probe(void)
 {
 	int retries = 300;
 
@@ -1126,7 +1138,7 @@ again:
 	return;
 }
 
-void sflash_erase_area(unsigned int start, unsigned int length)
+static void sflash_erase_area(unsigned int start, unsigned int length)
 {
 	int cur_block;
 	int tot_blocks;
@@ -1160,7 +1172,7 @@ void sflash_erase_area(unsigned int start, unsigned int length)
 
 }
 
-void sflash_erase_block(unsigned int addr)
+static void sflash_erase_block(unsigned int addr)
 {
 
 	if (cmd_type == CMD_TYPE_AMD) {
@@ -1218,7 +1230,7 @@ void sflash_erase_block(unsigned int addr)
 
 }
 
-void sflash_reset(void)
+static void sflash_reset(void)
 {
 
 	if ((cmd_type == CMD_TYPE_AMD) || (cmd_type == CMD_TYPE_SST)) {
@@ -1232,7 +1244,7 @@ void sflash_reset(void)
 
 }
 
-void sflash_write_word(unsigned int addr, unsigned int data)
+static void sflash_write_word(unsigned int addr, unsigned int data)
 {
 	unsigned int data_lo, data_hi;
 
