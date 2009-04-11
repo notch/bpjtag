@@ -52,7 +52,7 @@
 #define TDI      3
 #define TCK      2
 #define TMS      1
-#define TDO      15
+#define TDO      7
 #define TRST_N   4
 
 //

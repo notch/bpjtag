@@ -299,23 +299,42 @@ static void lpt_closeport(void)
 	close(pfd);
 }
 
-static inline unsigned char clockin(int tms, int tdi)
+static inline void clockin(int tms, int tdi)
 {
 	unsigned char data;
+	int err;
 
 	tms = tms ? 1 : 0;
 	tdi = tdi ? 1 : 0;
 
-	data = (1 << TDO) | (0 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
-	ioctl(pfd, PPWDATA, &data);
+	data = (0 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
+	err = ioctl(pfd, PPWDATA, &data);
+	if (err) {
+		fprintf(stderr, "clockin: parport IOCTL failed.\n");
+		exit(1);
+	}
 
-	data = (1 << TDO) | (1 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
-	ioctl(pfd, PPWDATA, &data);
+	data = (1 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
+	err = ioctl(pfd, PPWDATA, &data);
+	if (err) {
+		fprintf(stderr, "clockin: parport IOCTL failed.\n");
+		exit(1);
+	}
+}
 
-	ioctl(pfd, PPRSTATUS, &data);
+static inline unsigned char clockin_tdo(int tms, int tdi)
+{
+	unsigned char data;
+	int err;
 
-	data ^= (1 << (TDO - 8));
-	data = !!(data & (1 << (TDO - 8)));
+	clockin(tms, tdi);
+	err = ioctl(pfd, PPRSTATUS, &data);
+	if (err) {
+		fprintf(stderr, "clockin: parport IOCTL failed.\n");
+		exit(1);
+	}
+	data ^= (1 << TDO);
+	data = !!(data & (1 << TDO));
 
 	return data;
 }
@@ -370,7 +389,7 @@ static unsigned int ReadWriteData(unsigned int in_data)
 	clockin(0, 0);		// enter capture-dr
 	clockin(0, 0);		// enter shift-dr
 	for (i = 0; i < 32; i++) {
-		out_bit = clockin((i == 31), ((in_data >> i) & 1));
+		out_bit = clockin_tdo((i == 31), ((in_data >> i) & 1));
 		out_data = out_data | (out_bit << i);
 	}
 	clockin(1, 0);		// enter update-dr
