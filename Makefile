@@ -1,11 +1,15 @@
-CFLAGS += -Wall -O2
+CFLAGS = -Wall -O2 -fomit-frame-pointer
 
-WRT54GMEMOBJS = wrt54g.o
+BIN = debrick
+OBJS = debrick.o
 
-all: wrt54g
+all: $(BIN)
 
-wrt54g: $(WRT54GMEMOBJS)
-	gcc $(CFLAGS) -o $@ $(WRT54GMEMOBJS)
+$(BIN): $(OBJS)
+	gcc $(CFLAGS) -o $@ $(OBJS)
 
 clean:
-	rm -rf *.o wrt54g
+	rm -rf *.o
+
+distclean: clean
+	rm -rf $(BIN)

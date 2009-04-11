@@ -129,23 +129,13 @@
 //
 // **************************************************************************
 
-// Default is Compile for Linux (both #define's below should be commented out)
-// #define WINDOWS_VERSION   // uncomment only this for Windows Compile / MS Visual C Compiler
-// #define __FreeBSD__       // uncomment only this for FreeBSD
-
-#ifdef WINDOWS_VERSION
-   #include <windows.h>      // Only for Windows Compile
-   #define strcasecmp  stricmp
-   #define strncasecmp strnicmp
-#endif
-
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#include "wrt54g.h"
+#include "debrick.h"
 
 
 #define PORT	378
@@ -352,38 +342,24 @@ flash_chip_type  flash_chip_list[] = {
 
 void lpt_openport(void)
 {
-   #ifdef WINDOWS_VERSION    // ---- Compiler Specific Code ----
+#ifdef __FreeBSD__
 
-      HANDLE h;
+	pfd = open("/dev/ppi0", O_RDWR);
+	if (pfd < 0)   {   perror("Failed to open /dev/ppi0");   exit(0);   }
+	if ((ioctl(pfd, PPEXCL) < 0) || (ioctl(pfd, PPCLAIM) < 0))  {   perror("Failed to lock /dev/ppi0");   close(pfd);   exit(0);   }
 
-      h = CreateFile("\\\\.\\giveio", GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-      if(h == INVALID_HANDLE_VALUE) {  printf("Couldn't access giveio device\n");   CloseHandle(h);   exit(0);   }
-      CloseHandle(h);
+#else
 
-   #else                     // ---- Compiler Specific Code ----
+	pfd = open("/dev/parport0", O_RDWR);
+	if (pfd < 0)   {   perror("Failed to open /dev/parport0");   exit(0);   }
+	if ((ioctl(pfd, PPEXCL) < 0) || (ioctl(pfd, PPCLAIM) < 0))   {   perror("Failed to lock /dev/parport0");   close(pfd);   exit(0);   }
 
-      #ifdef __FreeBSD__     // ---- Compiler Specific Code ----
-
-         pfd = open("/dev/ppi0", O_RDWR);
-         if (pfd < 0)   {   perror("Failed to open /dev/ppi0");   exit(0);   }
-         if ((ioctl(pfd, PPEXCL) < 0) || (ioctl(pfd, PPCLAIM) < 0))  {   perror("Failed to lock /dev/ppi0");   close(pfd);   exit(0);   }
-
-      #else                  // ---- Compiler Specific Code ----
-
-         pfd = open("/dev/parport0", O_RDWR);
-         if (pfd < 0)   {   perror("Failed to open /dev/parport0");   exit(0);   }
-         if ((ioctl(pfd, PPEXCL) < 0) || (ioctl(pfd, PPCLAIM) < 0))   {   perror("Failed to lock /dev/parport0");   close(pfd);   exit(0);   }
-
-      #endif
-
-   #endif
+#endif
 }
 
 
 void lpt_closeport(void)
 {
-   #ifndef WINDOWS_VERSION   // ---- Compiler Specific Code ----
-
       #ifndef __FreeBSD__    // ---- Compiler Specific Code ----
 
          if (ioctl(pfd, PPRELEASE) < 0)  {  perror("Failed to release /dev/parport0");  close(pfd);  exit(0);  }
@@ -391,8 +367,6 @@ void lpt_closeport(void)
       #endif
 
       close(pfd);
-
-   #endif
 }
 
 
@@ -403,18 +377,6 @@ static unsigned char clockin(int tms, int tdi)
    tms = tms ? 1 : 0;
    tdi = tdi ? 1 : 0;
 
-   #ifdef WINDOWS_VERSION   // ---- Compiler Specific Code ----
-
-      data = (1 << TDO) | (0 << TCK) | (tms << TMS) | (tdi << TDI);
-      _outp(0x378, data);
-
-      data = (1 << TDO) | (1 << TCK) | (tms << TMS) | (tdi << TDI);
-      _outp(0x378, data);
-
-      data = (unsigned char)_inp(0x379);
-
-   #else   // ---- Compiler Specific Code ----
-
       data = (1 << TDO) | (0 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
       ioctl(pfd, PPWDATA, &data);
 
@@ -422,8 +384,6 @@ static unsigned char clockin(int tms, int tdi)
       ioctl(pfd, PPWDATA, &data);
 
       ioctl(pfd, PPRSTATUS, &data);
-
-   #endif
 
 data ^= (1 << (TDO - 8));
 data = !!(data & (1 << (TDO - 8)));
