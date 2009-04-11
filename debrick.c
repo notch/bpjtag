@@ -33,14 +33,14 @@
 static unsigned int ctrl_reg;
 
 static int pfd;
-static const char *parport_path = "/dev/parport0";
+static char parport_path[4096];
+static char inout_filename[4096];
 static int instruction_length;
 static int issue_reset = 1;
 static int issue_enable_mw = 1;
 static int issue_watchdog = 1;
 static int issue_break = 1;
 static int issue_erase = 1;
-static int issue_timestamp = 1;
 static int force_dma = 0;
 static int force_nodma = 0;
 static int selected_fc = 0;
@@ -811,29 +811,14 @@ void run_backup(char *filename, unsigned int start, unsigned int length)
 	FILE *fd;
 	int counter = 0;
 	int percent_complete = 0;
-	char newfilename[128] = "";
 	time_t start_time = time(0);
 	time_t end_time, elapsed_seconds;
 
-	struct tm *lt = localtime(&start_time);
-	char time_str[16];
+	printf("*** You Selected to Backup the %s ***\n\n", AREA_NAME);
 
-	sprintf(time_str, "%04d%02d%02d_%02d%02d%02d",
-		lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
-		lt->tm_hour, lt->tm_min, lt->tm_sec);
-
-	printf("*** You Selected to Backup the %s ***\n\n", filename);
-
-	strcpy(newfilename, filename);
-	strcat(newfilename, ".SAVED");
-	if (issue_timestamp) {
-		strcat(newfilename, "_");
-		strcat(newfilename, time_str);
-	}
-
-	fd = fopen(newfilename, "wb");
+	fd = fopen(filename, "wb");
 	if (fd <= 0) {
-		fprintf(stderr, "Could not open %s for writing\n", newfilename);
+		fprintf(stderr, "Could not open %s for writing\n", filename);
 		exit(1);
 	}
 
@@ -841,7 +826,7 @@ void run_backup(char *filename, unsigned int start, unsigned int length)
 	printf("Backup Routine Started\n");
 	printf("=========================\n");
 
-	printf("\nSaving %s to Disk...\n", newfilename);
+	printf("\nSaving %s to Disk...\n", AREA_NAME);
 	for (addr = start; addr < (start + length); addr += 4) {
 		counter += 4;
 		percent_complete = (counter * 100 / length);
@@ -862,7 +847,7 @@ void run_backup(char *filename, unsigned int start, unsigned int length)
 	}
 	fclose(fd);
 
-	printf("Done  (%s saved to Disk OK)\n\n", newfilename);
+	printf("Done  (%s saved to Disk OK)\n\n", AREA_NAME);
 
 	printf("bytes written: %d\n", counter);
 
@@ -938,12 +923,12 @@ void run_flash(char *filename, unsigned int start, unsigned int length)
 	printf("elapsed time: %d seconds\n", (int)elapsed_seconds);
 }
 
-void run_erase(char *filename, unsigned int start, unsigned int length)
+void run_erase(unsigned int start, unsigned int length)
 {
 	time_t start_time = time(0);
 	time_t end_time, elapsed_seconds;
 
-	printf("*** You Selected to Erase the %s ***\n\n", filename);
+	printf("*** You Selected to Erase the %s ***\n\n", AREA_NAME);
 
 	printf("=========================\n");
 	printf("Erasing Routine Started\n");
@@ -992,7 +977,6 @@ void identify_flash_part(void)
 				if ((flash_area->chip_size == flash_size)
 				    && (strcasecmp(flash_area->area_name, AREA_NAME) ==
 					0)) {
-					strcat(AREA_NAME, ".BIN");
 					AREA_START = flash_area->area_start;
 					AREA_LENGTH = flash_area->area_length;
 					break;
@@ -1001,7 +985,6 @@ void identify_flash_part(void)
 			}
 
 			if (strcasecmp(AREA_NAME, "CUSTOM") == 0) {
-				strcat(AREA_NAME, ".BIN");
 				FLASH_MEMORY_START = selected_window;
 				AREA_START = selected_start;
 				AREA_LENGTH = selected_length;
@@ -1346,7 +1329,7 @@ static void show_usage(int argc, char **argv)
 
 	printf("\n\n");
 	printf
-	    (" USAGE: %s ACTION <--noreset> <--noemw> <--nocwd> <--nobreak> <--noerase>\n"
+	    (" USAGE: %s ACTION <--file X> <--noreset> <--noemw> <--nocwd> <--nobreak> <--noerase>\n"
 	     "                      <--notimestamp> <--dma 1/0>\n"
 	     "                      <--start XXXXXXXX> <--length XXXXXXXX>\n"
 	     "                      <--silent> <--skipdetect> <--instrlen XX> <--flashchip XX>\n\n"
@@ -1367,6 +1350,7 @@ static void show_usage(int argc, char **argv)
 	     "            --flash wholeflash\n"
 	     "            --flash custom\n\n"
 	     "            Optional Switches\n\n"
+	     "            --file FILENAME ..... The filename of the image (output or input)\n"
 	     "            --noreset ........... prevent Issuing EJTAG CPU reset\n"
 	     "            --noemw ............. prevent Enabling Memory Writes\n"
 	     "            --nocwd ............. prevent Clearing CPU Watchdog Timer\n"
@@ -1406,6 +1390,7 @@ static void show_usage(int argc, char **argv)
 
 static struct option long_options[] = {
 	{ "help",		no_argument,		0, 'h', },
+	{ "file",		required_argument,	0, 'F', },
 	{ "backup",		required_argument,	0, 'b', },
 	{ "erase",		required_argument,	0, 'e', },
 	{ "flash",		required_argument,	0, 'f', },
@@ -1414,7 +1399,6 @@ static struct option long_options[] = {
 	{ "nocwd",		no_argument,		0, 'W', },
 	{ "nobreak",		no_argument,		0, 'B', },
 	{ "noerase",		no_argument,		0, 'E', },
-	{ "notimestamp",	no_argument,		0, 't', },
 	{ "dma",		required_argument,	0, 'd', },
 	{ "window",		required_argument,	0, 'w', },
 	{ "start",		required_argument,	0, 's', },
@@ -1422,7 +1406,8 @@ static struct option long_options[] = {
 	{ "silent",		no_argument,		0, 'S', },
 	{ "skipdetect",		no_argument,		0, 'D', },
 	{ "instrlen",		required_argument,	0, 'i', },
-	{ "flashchip",		required_argument,	0, 'F', },
+	{ "flashchip",		required_argument,	0, 'c', },
+	{ "parport",		required_argument,	0, 'p', },
 	{ NULL, },
 };
 
@@ -1438,7 +1423,7 @@ int main(int argc, char **argv)
 
 	run_option = 0;
 	while (1) {
-		c = getopt_long(argc, argv, "hb:e:f:rmWBEtd:w:s:l:SDi:F:",
+		c = getopt_long(argc, argv, "hF:b:e:f:rmWBEd:w:s:l:SDi:c:p:",
 				long_options, &idx);
 		if (c == -1)
 			break;
@@ -1446,6 +1431,9 @@ int main(int argc, char **argv)
 		case 'h': /* --help */
 			show_usage(argc, argv);
 			return 0;
+		case 'F': /* --file */
+			strncpy(inout_filename, optarg, sizeof(inout_filename) - 1);
+			break;
 		case 'b': /* --backup */
 			run_option = 1;
 			if (strcasecmp(optarg, "cfe") == 0) {
@@ -1512,9 +1500,6 @@ int main(int argc, char **argv)
 		case 'E': /* --noerase */
 			issue_erase = 0;
 			break;
-		case 't': /* --notimestamp */
-			issue_timestamp = 0;
-			break;
 		case 'd': /* --dma */
 			if (strtoul(optarg, NULL, 10))
 				force_dma = 1;
@@ -1539,8 +1524,11 @@ int main(int argc, char **argv)
 		case 'i': /* --instrlen */
 			instrlen = strtoul(optarg, NULL, 10);
 			break;
-		case 'F': /* --flashchip */
+		case 'c': /* --flashchip */
 			selected_fc = strtoul(optarg, NULL, 10);
+			break;
+		case 'p': /* --parport */
+			strncpy(parport_path, optarg, sizeof(parport_path) - 1);
 			break;
 		default:
 			fprintf(stderr, "Unknown argument\n");
@@ -1561,6 +1549,12 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 	}
+	if (strlen(inout_filename) == 0) {
+		strcpy(inout_filename, AREA_NAME);
+		strcat(inout_filename, ".BIN");
+	}
+	if (strlen(parport_path) == 0)
+		strcpy(parport_path, "/dev/parport0");
 
 	// ----------------------------------
 	// Detect CPU 
@@ -1641,11 +1635,11 @@ int main(int argc, char **argv)
 	// ----------------------------------
 	if ((flash_size > 0) && (AREA_LENGTH > 0)) {
 		if (run_option == 1)
-			run_backup(AREA_NAME, AREA_START, AREA_LENGTH);
+			run_backup(inout_filename, AREA_START, AREA_LENGTH);
 		if (run_option == 2)
-			run_erase(AREA_NAME, AREA_START, AREA_LENGTH);
+			run_erase(AREA_START, AREA_LENGTH);
 		if (run_option == 3)
-			run_flash(AREA_NAME, AREA_START, AREA_LENGTH);
+			run_flash(inout_filename, AREA_START, AREA_LENGTH);
 	}
 
 	printf("\n\n *** REQUESTED OPERATION IS COMPLETE ***\n\n");

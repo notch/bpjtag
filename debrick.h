@@ -1,106 +1,40 @@
-// **************************************************************************
-//
-//  WRT54G.H - Header file for the WRT54G/GS EJTAG Debrick Utility  v4.5
-//
-//  Note:
-//  This program is for De-Bricking the WRT54G/GS routers
-//
-//  New for v4.5 - Added 2 new Flash Chip Parts to the list:
-//                     - K8D1716UTC 1Mx16 TopB      (2MB)
-//                     - K8D1716UBC 1Mx16 BotB      (2MB)
-//
-//  New for v4.4 - Added PrAcc routines to support additional MIPS chips
-//                 without the ability to use EJTAG DMA Access
-//               - Added Chip ID for Broadcom BCM5365 Rev 1 CPU
-//               - Added Chip ID for Broadcom BCM6348 Rev 1 CPU (Big Endian)
-//               - Added Chip ID for Broadcom BCM6345 Rev 1 CPU
-//               - Added 6 new Flash Chip Parts to the list:
-//                     - SST39VF1601 1Mx16 BotB     (2MB)
-//                     - SST39VF1602 1Mx16 TopB     (2MB)
-//                     - SST39VF3201 2Mx16 BotB     (4MB)
-//                     - SST39VF3202 2Mx16 TopB     (4MB)
-//                     - SST39VF6401 4Mx16 BotB     (8MB)
-//                     - SST39VF6402 4Mx16 TopB     (8MB)
-//               - Added the following New Switch Options
-//                     - /noemw ............. prevent Enabling Memory Writes
-//                     - /nocwd ............. prevent Clearing CPU Watchdog Timer
-//                     - /dma ............... force use of DMA routines
-//                     - /nodma ............. force use of PRACC routines (No DMA)
-//                     - /window:XXXXXXXX ... custom flash window base (in HEX)
-//                     - /start:XXXXXXXX .... custom start location (in HEX)
-//                     - /length:XXXXXXXX ... custom length (in HEX)
-//                     - /silent ............ prevent scrolling display of data
-//                     - /skipdetect ........ skip auto detection of CPU Chip ID
-//                     - /instrlen:XX ....... set instruction length manually
-//               - Added elapsed time to Backup, Erase, and Flash routines
-//               - Other minor miscellaneous changes/additions.
-//
-//  New for v4.3 - Corrected Macronix Flash Chip Block Defintions.
-//               - Add 8 new Flash Chip Parts to the list:
-//                     - AT49BV/LV16X 2Mx16 BotB    (4MB)
-//                     - AT49BV/LV16XT 2Mx16 TopB   (4MB)
-//                     - MBM29LV160B 1Mx16 BotB     (2MB)
-//                     - MBM29LV160T 1Mx16 TopB     (2MB)
-//                     - MX29LV161B 1Mx16 BotB      (2MB)
-//                     - MX29LV161T 1Mx16 TopB      (2MB)
-//                     - ST M29W160EB 1Mx16 BotB    (2MB)
-//                     - ST M29W160ET 1Mx16 TopB    (2MB)
-//
-//  New for v4.2 - Changed the chip_detect routine to allow for easier
-//                 additions of new chip id's.
-//               - Added detection support for the Broadcom BCM5350 chip.
-//               - Fixed DMA routines to check status bit that was
-//                 removed in prior version.
-//               - Removed clockout routine in an effort to speed up access.
-//               - Changed clockin routine in an effort to speed up access.
-//               - Changed ReadData and WriteData routines to merely call
-//                 ReadWriteData routine.
-//               - Removed Defines from .h file and placed flash areas in a
-//                 structure list for easier maintenance should they change.
-//               - Miscellaneous other minor changes.
-//
-// **************************************************************************
-//  Written by HairyDairyMaid (a.k.a. - lightbulb)
-//  hairydairymaid@yahoo.com
-// **************************************************************************
-//
-//  This program is copyright (C) 2004 HairyDairyMaid (a.k.a. Lightbulb)
-//  This program is free software; you can redistribute it and/or modify it
-//  under the terms of version 2 the GNU General Public License as published
-//  by the Free Software Foundation.
-//  This program is distributed in the hope that it will be useful, but WITHOUT
-//  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-//  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-//  more details.
-//  To view a copy of the license go to:
-//  http://www.fsf.org/copyleft/gpl.html
-//  To receive a copy of the GNU General Public License write the Free Software
-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//
-// **************************************************************************
+/****************************************************************************
+ *
+ *  Broadcom-MIPS EJTAG Debrick Utility
+ *
+ *  Copyright (C) 2009 Michael Buesch <mb@bu3sch.de>
+ *  Copyright (C) 2004 HairyDairyMaid (a.k.a. Lightbulb)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of version 2 the GNU General Public License as published
+ *  by the Free Software Foundation.
+ *  This program is distributed in the hope that it will be useful, but WITHOUT
+ *  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ *  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ *  more details.
+ *  To view a copy of the license go to:
+ *  http://www.fsf.org/copyleft/gpl.html
+ *  To receive a copy of the GNU General Public License write the Free Software
+ *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ ****************************************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
 
-#ifndef WINDOWS_VERSION
-
 #include <unistd.h>
 #include <sys/ioctl.h>
 
 #ifdef __FreeBSD__
-#include <dev/ppbus/ppi.h>
-#include <dev/ppbus/ppbconf.h>
-#define PPWDATA PPISDATA
-#define PPRSTATUS PPIGSTATUS
+# include <dev/ppbus/ppi.h>
+# include <dev/ppbus/ppbconf.h>
+# define PPWDATA PPISDATA
+# define PPRSTATUS PPIGSTATUS
 #else
-#include <linux/ppdev.h>
+# include <linux/ppdev.h>
 #endif
 
-#endif
-
-#define true  1
-#define false 0
 
 #define RETRY_ATTEMPTS 16
 
@@ -159,21 +93,21 @@
 #define DMA_WORD        0x00000100	//DMA transfer size WORD
 #define DMA_TRIPLEBYTE  0x00000180	//DMA transfer size TRIPLEBYTE
 
-#define  size8K        0x2000
-#define  size16K       0x4000
-#define  size32K       0x8000
-#define  size64K       0x10000
-#define  size128K      0x20000
+#define size8K        0x2000
+#define size16K       0x4000
+#define size32K       0x8000
+#define size64K       0x10000
+#define size128K      0x20000
 
-#define  size2MB       0x200000
-#define  size4MB       0x400000
-#define  size8MB       0x800000
-#define  size16MB      0x1000000
+#define size2MB       0x200000
+#define size4MB       0x400000
+#define size8MB       0x800000
+#define size16MB      0x1000000
 
-#define  CMD_TYPE_BSC  0x01
-#define  CMD_TYPE_SCS  0x02
-#define  CMD_TYPE_AMD  0x03
-#define  CMD_TYPE_SST  0x04
+#define CMD_TYPE_BSC  0x01
+#define CMD_TYPE_SCS  0x02
+#define CMD_TYPE_AMD  0x03
+#define CMD_TYPE_SST  0x04
 
 // EJTAG DEBUG Unit Vector on Debug Break
 #define MIPS_DEBUG_VECTOR_ADDRESS           0xFF200200
@@ -205,7 +139,6 @@ void lpt_openport(void);
 static unsigned int ReadData(void);
 static unsigned int ReadWriteData(unsigned int in_data);
 void run_backup(char *filename, unsigned int start, unsigned int length);
-void run_erase(char *filename, unsigned int start, unsigned int length);
 void run_flash(char *filename, unsigned int start, unsigned int length);
 void set_instr(int instr);
 void sflash_config(void);
@@ -315,7 +248,3 @@ unsigned int pracc_writehalf_code_module[] = {
 	0x1000FFF9,		// beq $0, $0, start
 	0x00000000
 };				// nop
-
-// **************************************************************************
-// End of File
-// **************************************************************************

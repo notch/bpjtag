@@ -5,6 +5,8 @@ OBJS = debrick.o
 
 all: $(BIN)
 
+debrick.o: debrick.h
+
 $(BIN): $(OBJS)
 	gcc $(CFLAGS) -o $@ $(OBJS)
 
