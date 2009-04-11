@@ -274,25 +274,6 @@ static flash_chip_type flash_chip_list[] = {
 };
 
 
-
-static void chip_shutdown(void);
-static void define_block(unsigned int block_count, unsigned int block_size);
-static unsigned int ejtag_dma_read(unsigned int addr);
-static unsigned int ejtag_dma_read_h(unsigned int addr);
-static void ejtag_dma_write(unsigned int addr, unsigned int data);
-static void ejtag_dma_write_h(unsigned int addr, unsigned int data);
-static unsigned int ejtag_pracc_read(unsigned int addr);
-static void ejtag_pracc_write(unsigned int addr, unsigned int data);
-static unsigned int ejtag_pracc_read_h(unsigned int addr);
-static void ejtag_pracc_write_h(unsigned int addr, unsigned int data);
-static unsigned int ReadWriteData(unsigned int in_data);
-static void sflash_erase_area(unsigned int start, unsigned int length);
-static void sflash_erase_block(unsigned int addr);
-static void sflash_reset(void);
-static void sflash_write_word(unsigned int addr, unsigned int data);
-static void ExecuteDebugModule(unsigned int *pmodule);
-
-
 static void lpt_openport(void)
 {
 	pfd = open(parport_path, O_RDWR);
@@ -413,38 +394,6 @@ static void ShowData(unsigned int value)
 	for (i = 0; i < 32; i++)
 		printf("%d", (value >> (31 - i)) & 1);
 	printf(" (%08X)\n", value);
-}
-
-static unsigned int ejtag_read(unsigned int addr)
-{
-	if (USE_DMA)
-		return (ejtag_dma_read(addr));
-	else
-		return (ejtag_pracc_read(addr));
-}
-
-static unsigned int ejtag_read_h(unsigned int addr)
-{
-	if (USE_DMA)
-		return (ejtag_dma_read_h(addr));
-	else
-		return (ejtag_pracc_read_h(addr));
-}
-
-static void ejtag_write(unsigned int addr, unsigned int data)
-{
-	if (USE_DMA)
-		ejtag_dma_write(addr, data);
-	else
-		ejtag_pracc_write(addr, data);
-}
-
-static void ejtag_write_h(unsigned int addr, unsigned int data)
-{
-	if (USE_DMA)
-		ejtag_dma_write_h(addr, data);
-	else
-		ejtag_pracc_write_h(addr, data);
 }
 
 static unsigned int ejtag_dma_read(unsigned int addr)
@@ -584,36 +533,6 @@ begin_ejtag_dma_write_h:
 	}
 }
 
-static unsigned int ejtag_pracc_read(unsigned int addr)
-{
-	address_register = addr | 0xA0000000;	// Force to use uncached segment
-	data_register = 0x0;
-	ExecuteDebugModule(pracc_readword_code_module);
-	return (data_register);
-}
-
-static void ejtag_pracc_write(unsigned int addr, unsigned int data)
-{
-	address_register = addr | 0xA0000000;	// Force to use uncached segment
-	data_register = data;
-	ExecuteDebugModule(pracc_writeword_code_module);
-}
-
-static unsigned int ejtag_pracc_read_h(unsigned int addr)
-{
-	address_register = addr | 0xA0000000;	// Force to use uncached segment
-	data_register = 0x0;
-	ExecuteDebugModule(pracc_readhalf_code_module);
-	return (data_register);
-}
-
-static void ejtag_pracc_write_h(unsigned int addr, unsigned int data)
-{
-	address_register = addr | 0xA0000000;	// Force to use uncached segment
-	data_register = data;
-	ExecuteDebugModule(pracc_writehalf_code_module);
-}
-
 static void ExecuteDebugModule(unsigned int *pmodule)
 {
 	unsigned int ctrl_reg;
@@ -708,6 +627,75 @@ static void ExecuteDebugModule(unsigned int *pmodule)
 
 		}
 	}
+}
+
+static unsigned int ejtag_pracc_read(unsigned int addr)
+{
+	address_register = addr | 0xA0000000;	// Force to use uncached segment
+	data_register = 0x0;
+	ExecuteDebugModule(pracc_readword_code_module);
+	return (data_register);
+}
+
+static void ejtag_pracc_write(unsigned int addr, unsigned int data)
+{
+	address_register = addr | 0xA0000000;	// Force to use uncached segment
+	data_register = data;
+	ExecuteDebugModule(pracc_writeword_code_module);
+}
+
+static unsigned int ejtag_pracc_read_h(unsigned int addr)
+{
+	address_register = addr | 0xA0000000;	// Force to use uncached segment
+	data_register = 0x0;
+	ExecuteDebugModule(pracc_readhalf_code_module);
+	return (data_register);
+}
+
+static void ejtag_pracc_write_h(unsigned int addr, unsigned int data)
+{
+	address_register = addr | 0xA0000000;	// Force to use uncached segment
+	data_register = data;
+	ExecuteDebugModule(pracc_writehalf_code_module);
+}
+
+static unsigned int ejtag_read(unsigned int addr)
+{
+	if (USE_DMA)
+		return (ejtag_dma_read(addr));
+	else
+		return (ejtag_pracc_read(addr));
+}
+
+static unsigned int ejtag_read_h(unsigned int addr)
+{
+	if (USE_DMA)
+		return (ejtag_dma_read_h(addr));
+	else
+		return (ejtag_pracc_read_h(addr));
+}
+
+static void ejtag_write(unsigned int addr, unsigned int data)
+{
+	if (USE_DMA)
+		ejtag_dma_write(addr, data);
+	else
+		ejtag_pracc_write(addr, data);
+}
+
+static void ejtag_write_h(unsigned int addr, unsigned int data)
+{
+	if (USE_DMA)
+		ejtag_dma_write_h(addr, data);
+	else
+		ejtag_pracc_write_h(addr, data);
+}
+
+static void chip_shutdown(void)
+{
+	fflush(stdout);
+	test_reset();
+	lpt_closeport();
 }
 
 static void chip_detect(void)
@@ -810,13 +798,6 @@ static void check_ejtag_features()
 	printf("\n");
 }
 
-static void chip_shutdown(void)
-{
-	fflush(stdout);
-	test_reset();
-	lpt_closeport();
-}
-
 static void run_backup(char *filename, unsigned int start, unsigned int length)
 {
 	unsigned int addr, data;
@@ -870,6 +851,189 @@ static void run_backup(char *filename, unsigned int start, unsigned int length)
 	time(&end_time);
 	elapsed_seconds = difftime(end_time, start_time);
 	printf("elapsed time: %d seconds\n", (int)elapsed_seconds);
+}
+
+static void sflash_reset(void)
+{
+
+	if ((cmd_type == CMD_TYPE_AMD) || (cmd_type == CMD_TYPE_SST)) {
+		ejtag_write_h(FLASH_MEMORY_START, 0x00F000F0);	// Set array to read mode
+	}
+
+	if ((cmd_type == CMD_TYPE_BSC) || (cmd_type == CMD_TYPE_SCS)) {
+		ejtag_write_h(FLASH_MEMORY_START, 0x00500050);	// Clear CSR
+		ejtag_write_h(FLASH_MEMORY_START, 0x00ff00ff);	// Set array to read mode
+	}
+
+}
+
+static void sflash_erase_block(unsigned int addr)
+{
+
+	if (cmd_type == CMD_TYPE_AMD) {
+
+		//Unlock Block
+		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
+		ejtag_write_h(FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
+		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00800080);
+
+		//Erase Block
+		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
+		ejtag_write_h(FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
+		ejtag_write_h(addr, 0x00300030);
+
+		while (ejtag_read_h(addr) != 0xFFFF) {
+		}
+
+	}
+
+	if (cmd_type == CMD_TYPE_SST) {
+
+		//Unlock Block
+		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
+		ejtag_write_h(FLASH_MEMORY_START + (0x2AAA << 1), 0x00550055);
+		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00800080);
+
+		//Erase Block
+		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
+		ejtag_write_h(FLASH_MEMORY_START + (0x2AAA << 1), 0x00550055);
+		ejtag_write_h(addr, 0x00500050);
+
+		while (ejtag_read_h(addr) != 0xFFFF) {
+		}
+
+	}
+
+	if ((cmd_type == CMD_TYPE_BSC) || (cmd_type == CMD_TYPE_SCS)) {
+
+		//Unlock Block
+		ejtag_write_h(addr, 0x00600060);	// Unlock Flash Block Command
+		ejtag_write_h(addr, 0x00D000D0);	// Confirm Command
+		tdelay(2, 0);
+
+		//Erase Block
+		ejtag_write_h(addr, 0x00200020);	// Block Erase Command
+		ejtag_write_h(addr, 0x00D000D0);	// Confirm Command
+		tdelay(5, 0);
+
+		while (ejtag_read_h(FLASH_MEMORY_START) != 0x0080) {
+		}
+
+	}
+
+	sflash_reset();
+
+}
+
+static void sflash_erase_area(unsigned int start, unsigned int length)
+{
+	int cur_block;
+	int tot_blocks;
+	unsigned int reg_start;
+	unsigned int reg_end;
+
+	reg_start = start;
+	reg_end = reg_start + length;
+
+	tot_blocks = 0;
+
+	for (cur_block = 1; cur_block <= block_total; cur_block++) {
+		block_addr = blocks[cur_block];
+		if ((block_addr >= reg_start) && (block_addr < reg_end))
+			tot_blocks++;
+	}
+
+	printf("Total Blocks to Erase: %d\n\n", tot_blocks);
+
+	for (cur_block = 1; cur_block <= block_total; cur_block++) {
+		block_addr = blocks[cur_block];
+		if ((block_addr >= reg_start) && (block_addr < reg_end)) {
+			printf("Erasing block: %d (addr = %08x)...", cur_block,
+			       block_addr);
+			fflush(stdout);
+			sflash_erase_block(block_addr);
+			printf("Done\n\n");
+			fflush(stdout);
+		}
+	}
+
+}
+
+static void sflash_write_word(unsigned int addr, unsigned int data)
+{
+	unsigned int data_lo, data_hi;
+
+	if (USE_DMA) {
+		// DMA Uses Byte Lanes
+		data_lo = data;
+		data_hi = data;
+	} else {
+		// PrAcc Does Not
+		data_lo = (data & 0xFFFF);
+		data_hi = ((data >> 16) & 0xFFFF);
+	}
+
+	if (cmd_type == CMD_TYPE_AMD) {
+		// Handle Half Of Word
+		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
+		ejtag_write_h(FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
+		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
+		ejtag_write_h(addr, data_lo);
+
+		// wait for bits to stop toggling
+		while (ejtag_read_h(addr) != (data & 0xFFFF)) {
+		}
+
+		// Now Handle Other Half Of Word
+		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
+		ejtag_write_h(FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
+		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
+		ejtag_write_h(addr + 2, data_hi);
+
+		// wait for bits to stop toggling
+		while (ejtag_read_h(addr + 2) != ((data >> 16) & 0xFFFF)) {
+		}
+	}
+
+	if (cmd_type == CMD_TYPE_SST) {
+		// Handle Half Of Word
+		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
+		ejtag_write_h(FLASH_MEMORY_START + (0x2AAA << 1), 0x00550055);
+		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00A000A0);
+		ejtag_write_h(addr, data_lo);
+
+		// wait for bits to stop toggling
+		// while (ejtag_read_h(addr) != (data & 0xFFFF)) {}
+		while (ejtag_read_h(addr) != ejtag_read_h(addr)) {
+		}
+
+		// Now Handle Other Half Of Word
+		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
+		ejtag_write_h(FLASH_MEMORY_START + (0x2AAA << 1), 0x00550055);
+		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00A000A0);
+		ejtag_write_h(addr + 2, data_hi);
+
+		// wait for bits to stop toggling
+		// while (ejtag_read_h(addr+2) != ((data >> 16) & 0xFFFF)) {}
+		while (ejtag_read_h(addr + 2) != ejtag_read_h(addr + 2)) {
+		}
+	}
+
+	if ((cmd_type == CMD_TYPE_BSC) || (cmd_type == CMD_TYPE_SCS)) {
+		// Handle Half Of Word
+		ejtag_write_h(addr, 0x00400040);	// Write Command
+		ejtag_write_h(addr, data_lo);	// Send HalfWord Data
+		tdelay(0, 700);
+		while (ejtag_read_h(addr) != 0x0080) {
+		}		// Wait for completion of write
+
+		// Now Handle Other Half Of Word
+		ejtag_write_h(addr + 2, 0x00400040);	// Write Command
+		ejtag_write_h(addr + 2, data_hi);	// Send HalfWord Data
+		tdelay(0, 700);
+		while (ejtag_read_h(addr) != 0x0080) {
+		}		// Wait for completion of write
+	}
 }
 
 static void run_flash(char *filename, unsigned int start, unsigned int length)
@@ -958,6 +1122,20 @@ static void run_erase(unsigned int start, unsigned int length)
 	printf("elapsed time: %d seconds\n", (int)elapsed_seconds);
 }
 
+static void define_block(unsigned int block_count, unsigned int block_size)
+{
+	unsigned int i;
+
+	if (block_addr == 0)
+		block_addr = FLASH_MEMORY_START;
+
+	for (i = 1; i <= block_count; i++) {
+		block_total++;
+		blocks[block_total] = block_addr;
+		block_addr = block_addr + block_size;
+	}
+}
+
 static void identify_flash_part(void)
 {
 	flash_chip_type *flash_chip = flash_chip_list;
@@ -1038,20 +1216,6 @@ static void identify_flash_part(void)
 			break;
 		}
 		flash_chip++;
-	}
-}
-
-static void define_block(unsigned int block_count, unsigned int block_size)
-{
-	unsigned int i;
-
-	if (block_addr == 0)
-		block_addr = FLASH_MEMORY_START;
-
-	for (i = 1; i <= block_count; i++) {
-		block_total++;
-		blocks[block_total] = block_addr;
-		block_addr = block_addr + block_size;
 	}
 }
 
@@ -1136,189 +1300,6 @@ again:
 	}
 
 	return;
-}
-
-static void sflash_erase_area(unsigned int start, unsigned int length)
-{
-	int cur_block;
-	int tot_blocks;
-	unsigned int reg_start;
-	unsigned int reg_end;
-
-	reg_start = start;
-	reg_end = reg_start + length;
-
-	tot_blocks = 0;
-
-	for (cur_block = 1; cur_block <= block_total; cur_block++) {
-		block_addr = blocks[cur_block];
-		if ((block_addr >= reg_start) && (block_addr < reg_end))
-			tot_blocks++;
-	}
-
-	printf("Total Blocks to Erase: %d\n\n", tot_blocks);
-
-	for (cur_block = 1; cur_block <= block_total; cur_block++) {
-		block_addr = blocks[cur_block];
-		if ((block_addr >= reg_start) && (block_addr < reg_end)) {
-			printf("Erasing block: %d (addr = %08x)...", cur_block,
-			       block_addr);
-			fflush(stdout);
-			sflash_erase_block(block_addr);
-			printf("Done\n\n");
-			fflush(stdout);
-		}
-	}
-
-}
-
-static void sflash_erase_block(unsigned int addr)
-{
-
-	if (cmd_type == CMD_TYPE_AMD) {
-
-		//Unlock Block
-		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
-		ejtag_write_h(FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
-		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00800080);
-
-		//Erase Block
-		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
-		ejtag_write_h(FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
-		ejtag_write_h(addr, 0x00300030);
-
-		while (ejtag_read_h(addr) != 0xFFFF) {
-		}
-
-	}
-
-	if (cmd_type == CMD_TYPE_SST) {
-
-		//Unlock Block
-		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
-		ejtag_write_h(FLASH_MEMORY_START + (0x2AAA << 1), 0x00550055);
-		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00800080);
-
-		//Erase Block
-		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
-		ejtag_write_h(FLASH_MEMORY_START + (0x2AAA << 1), 0x00550055);
-		ejtag_write_h(addr, 0x00500050);
-
-		while (ejtag_read_h(addr) != 0xFFFF) {
-		}
-
-	}
-
-	if ((cmd_type == CMD_TYPE_BSC) || (cmd_type == CMD_TYPE_SCS)) {
-
-		//Unlock Block
-		ejtag_write_h(addr, 0x00600060);	// Unlock Flash Block Command
-		ejtag_write_h(addr, 0x00D000D0);	// Confirm Command
-		tdelay(2, 0);
-
-		//Erase Block
-		ejtag_write_h(addr, 0x00200020);	// Block Erase Command
-		ejtag_write_h(addr, 0x00D000D0);	// Confirm Command
-		tdelay(5, 0);
-
-		while (ejtag_read_h(FLASH_MEMORY_START) != 0x0080) {
-		}
-
-	}
-
-	sflash_reset();
-
-}
-
-static void sflash_reset(void)
-{
-
-	if ((cmd_type == CMD_TYPE_AMD) || (cmd_type == CMD_TYPE_SST)) {
-		ejtag_write_h(FLASH_MEMORY_START, 0x00F000F0);	// Set array to read mode
-	}
-
-	if ((cmd_type == CMD_TYPE_BSC) || (cmd_type == CMD_TYPE_SCS)) {
-		ejtag_write_h(FLASH_MEMORY_START, 0x00500050);	// Clear CSR
-		ejtag_write_h(FLASH_MEMORY_START, 0x00ff00ff);	// Set array to read mode
-	}
-
-}
-
-static void sflash_write_word(unsigned int addr, unsigned int data)
-{
-	unsigned int data_lo, data_hi;
-
-	if (USE_DMA) {
-		// DMA Uses Byte Lanes
-		data_lo = data;
-		data_hi = data;
-	} else {
-		// PrAcc Does Not
-		data_lo = (data & 0xFFFF);
-		data_hi = ((data >> 16) & 0xFFFF);
-	}
-
-	if (cmd_type == CMD_TYPE_AMD) {
-		// Handle Half Of Word
-		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
-		ejtag_write_h(FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
-		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
-		ejtag_write_h(addr, data_lo);
-
-		// wait for bits to stop toggling
-		while (ejtag_read_h(addr) != (data & 0xFFFF)) {
-		}
-
-		// Now Handle Other Half Of Word
-		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
-		ejtag_write_h(FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
-		ejtag_write_h(FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
-		ejtag_write_h(addr + 2, data_hi);
-
-		// wait for bits to stop toggling
-		while (ejtag_read_h(addr + 2) != ((data >> 16) & 0xFFFF)) {
-		}
-	}
-
-	if (cmd_type == CMD_TYPE_SST) {
-		// Handle Half Of Word
-		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
-		ejtag_write_h(FLASH_MEMORY_START + (0x2AAA << 1), 0x00550055);
-		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00A000A0);
-		ejtag_write_h(addr, data_lo);
-
-		// wait for bits to stop toggling
-		// while (ejtag_read_h(addr) != (data & 0xFFFF)) {}
-		while (ejtag_read_h(addr) != ejtag_read_h(addr)) {
-		}
-
-		// Now Handle Other Half Of Word
-		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
-		ejtag_write_h(FLASH_MEMORY_START + (0x2AAA << 1), 0x00550055);
-		ejtag_write_h(FLASH_MEMORY_START + (0x5555 << 1), 0x00A000A0);
-		ejtag_write_h(addr + 2, data_hi);
-
-		// wait for bits to stop toggling
-		// while (ejtag_read_h(addr+2) != ((data >> 16) & 0xFFFF)) {}
-		while (ejtag_read_h(addr + 2) != ejtag_read_h(addr + 2)) {
-		}
-	}
-
-	if ((cmd_type == CMD_TYPE_BSC) || (cmd_type == CMD_TYPE_SCS)) {
-		// Handle Half Of Word
-		ejtag_write_h(addr, 0x00400040);	// Write Command
-		ejtag_write_h(addr, data_lo);	// Send HalfWord Data
-		tdelay(0, 700);
-		while (ejtag_read_h(addr) != 0x0080) {
-		}		// Wait for completion of write
-
-		// Now Handle Other Half Of Word
-		ejtag_write_h(addr + 2, 0x00400040);	// Write Command
-		ejtag_write_h(addr + 2, data_hi);	// Send HalfWord Data
-		tdelay(0, 700);
-		while (ejtag_read_h(addr) != 0x0080) {
-		}		// Wait for completion of write
-	}
 }
 
 static void show_usage(int argc, char **argv)
