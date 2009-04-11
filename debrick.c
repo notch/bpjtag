@@ -51,6 +51,7 @@ static int skipdetect = 0;
 static int instrlen = 0;
 static int ludicrous_speed = 0;
 static int ludicrous_speed_corruption = 0;
+static int no_erase_delays = 0;
 
 static char flash_part[128];
 static unsigned int flash_size = 0;
@@ -906,12 +907,14 @@ static void sflash_erase_block(unsigned int addr)
 		//Unlock Block
 		ejtag_write_h(addr, 0x00600060);	// Unlock Flash Block Command
 		ejtag_write_h(addr, 0x00D000D0);	// Confirm Command
-		tdelay(2, 0);
+		if (!no_erase_delays)
+			tdelay(2, 0);
 
 		//Erase Block
 		ejtag_write_h(addr, 0x00200020);	// Block Erase Command
 		ejtag_write_h(addr, 0x00D000D0);	// Confirm Command
-		tdelay(5, 0);
+		if (!no_erase_delays)
+			tdelay(5, 0);
 
 		while (ejtag_read_h(FLASH_MEMORY_START) != 0x0080) {
 		}
@@ -1353,7 +1356,10 @@ static void show_usage(int argc, char **argv)
 	     "            --instrlen XX ....... set instruction length manually\n"
 	     "            --ludicrous-speed ... Remove read of lowlevel busy-flags. Brings\n"
 	     "                                  huge(!) speedup, but risks data corruption\n"
-	     "                                  on slow embedded CPUs.\n\n"
+	     "                                  on slow embedded CPUs.\n"
+	     "            --noerasedelays ..... Do not execute delays in the flash erase code.\n"
+	     "                                  Speeds up erasing, but may result in incompletely\n"
+	     "                                  erased flash blocks on slow flashes.\n\n"
 	     "            --flashchip XX = Optional (Manual) Flash Chip Selection\n"
 	     "            -----------------------------------------------\n",
 	     argv[0]);
@@ -1392,6 +1398,7 @@ static struct option long_options[] = {
 	{ "flashchip",		required_argument,	0, 'c', },
 	{ "parport",		required_argument,	0, 'p', },
 	{ "ludicrous-speed",	no_argument,		0, 'L', },
+	{ "noerasedelays",	no_argument,		0, 'R', },
 	{ NULL, },
 };
 
@@ -1517,6 +1524,9 @@ int main(int argc, char **argv)
 		case 'L': /* ludicrous-speed */
 			ludicrous_speed = 1;
 			break;
+		case 'R': /* --noerasedelays */
+			no_erase_delays = 1;
+			break;
 		default:
 			fprintf(stderr, "Unknown argument\n");
 			exit(1);
@@ -1629,7 +1639,7 @@ int main(int argc, char **argv)
 			run_flash(inout_filename, AREA_START, AREA_LENGTH);
 	}
 
-	if (!ludicrous_speed) {
+	if (!ludicrous_speed && run_option != 2) {
 		if (ludicrous_speed_corruption) {
 			printf("\nInfo: Usage of --ludicrous-speed would have corrupted data\n"
 			       "in this run. Luckily you did not use it. :)\n");
