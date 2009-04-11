@@ -50,6 +50,7 @@ static int silent_mode = 0;
 static int skipdetect = 0;
 static int instrlen = 0;
 static int ludicrous_speed = 0;
+static int ludicrous_speed_corruption = 0;
 
 static char flash_part[128];
 static unsigned int flash_size = 0;
@@ -440,7 +441,7 @@ begin_ejtag_dma_read:
 	if (!ludicrous_speed) {
 		// Wait for DSTRT to Clear
 		while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT)
-			;
+			ludicrous_speed_corruption = 1;
 	}
 
 	// Read Data
@@ -451,6 +452,7 @@ begin_ejtag_dma_read:
 		// Clear DMA & Check DERR
 		set_instr(INSTR_CONTROL);
 		if (ReadWriteData(PROBEN | PRACC) & DERR) {
+			ludicrous_speed_corruption = 1;
 			if (retries--)
 				goto begin_ejtag_dma_read;
 			else
@@ -503,11 +505,12 @@ begin_ejtag_dma_write:
 	if (!ludicrous_speed) {
 		// Wait for DSTRT to Clear
 		while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT)
-			;
+			ludicrous_speed_corruption = 1;
 
 		// Clear DMA & Check DERR
 		set_instr(INSTR_CONTROL);
 		if (ReadWriteData(PROBEN | PRACC) & DERR) {
+			ludicrous_speed_corruption = 1;
 			if (retries--)
 				goto begin_ejtag_dma_write;
 			else
@@ -1624,6 +1627,18 @@ int main(int argc, char **argv)
 			run_erase(AREA_START, AREA_LENGTH);
 		if (run_option == 3)
 			run_flash(inout_filename, AREA_START, AREA_LENGTH);
+	}
+
+	if (!ludicrous_speed) {
+		if (ludicrous_speed_corruption) {
+			printf("\nInfo: Usage of --ludicrous-speed would have corrupted data\n"
+			       "in this run. Luckily you did not use it. :)\n");
+		} else {
+			printf("\nInfo: Usage of --ludicrous-speed would _not_ have corrupted\n"
+			       "data in this run. So you might consider using it next time.\n"
+			       "But keep in mind that this is no 100%% guarantee that it won't\n"
+			       "corrupt data in future.\n");
+		}
 	}
 
 	printf("\n\n *** REQUESTED OPERATION IS COMPLETE ***\n\n");
