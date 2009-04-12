@@ -288,15 +288,15 @@ static int register_device(int minor, struct kdebrick *d)
 
 static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	unsigned int minor = iminor(file->f_path.dentry->d_inode);
 	struct kdebrick *d = file->private_data;
-	struct parport *port;
 	void __user *argp = (void __user *)arg;
 	int err;
 
 	/* First handle the cases that don't take arguments. */
 	switch (cmd) {
-	case KDEBRICK_IOCTL_CLAIM:
+	case KDEBRICK_IOCTL_CLAIM: {
+		unsigned int minor = iminor(file->f_path.dentry->d_inode);
+
 		if (d->claimed)
 			return -EBUSY;
 
@@ -316,14 +316,13 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 		parport_set_timeout(d->pdev, parport_set_timeout(d->pdev, 0));
 
 		return 0;
-	}
+	} }
 
 	/* Everything else requires the port to be claimed, so check
 	 * that now. */
 	if (!d->claimed)
 		return -EPERM;
 
-	port = d->pdev->port;
 	switch (cmd) {
 	case KDEBRICK_IOCTL_RELEASE:
 		parport_release(d->pdev);
@@ -398,7 +397,7 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 		break;
 	}
 	default:
-		printk(KERN_DEBUG CHRDEV "%x: What? (cmd=0x%x)\n", minor, cmd);
+		printk(KERN_DEBUG CHRDEV "Unknown IOCTL (cmd=0x%x)\n", cmd);
 		return -EINVAL;
 	}
 
@@ -425,10 +424,9 @@ static long kdebrick_compat_ioctl(struct file *file, unsigned int cmd,
 
 static int kdebrick_open(struct inode *inode, struct file *file)
 {
-	unsigned int minor = iminor(inode);
 	struct kdebrick *d;
 
-	if (minor >= PARPORT_MAX)
+	if (iminor(inode) >= PARPORT_MAX)
 		return -ENXIO;
 
 	d = kzalloc(sizeof(struct kdebrick), GFP_KERNEL);
