@@ -1,4 +1,11 @@
 debrick
+.tmp_versions
+
 *.o
 *.swp
 *~
+*.cmd
+*.ko
+*.symvers
+*.mod.c
+*.order

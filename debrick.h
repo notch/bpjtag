@@ -19,6 +19,8 @@
  *
  ****************************************************************************/
 
+#ifndef __KERNEL__
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -35,6 +37,7 @@
 # include <linux/ppdev.h>
 #endif
 
+#endif /* __KERNEL__ */
 
 #define RETRY_ATTEMPTS 16
 

@@ -28,6 +28,7 @@
 #include <getopt.h>
 
 #include "debrick.h"
+#include "kernel/kdebrick.h"
 
 
 static int pfd;
@@ -52,6 +53,7 @@ static int instrlen = 0;
 static int ludicrous_speed = 0;
 static int ludicrous_speed_corruption = 0;
 static int no_erase_delays = 0;
+static int use_kdebrick = 0; /* use kernel accelerator? */
 
 static char flash_part[128];
 static unsigned int flash_size = 0;
@@ -281,21 +283,38 @@ static void lpt_openport(void)
 	if (pfd < 0) {
 		fprintf(stderr, "Failed to open %s: %s\n",
 			parport_path, strerror(errno));
-		exit(0);
+		exit(1);
 	}
-	if ((ioctl(pfd, PPEXCL) < 0) || (ioctl(pfd, PPCLAIM) < 0)) {
-		fprintf(stderr, "Failed to lock %s: %s\n",
-			parport_path, strerror(errno));
-		close(pfd);
-		exit(0);
+	if (use_kdebrick) {
+		if (ioctl(pfd, KDEBRICK_IOCTL_CLAIM)) {
+			fprintf(stderr, "Failed to claim kdebrick device %s: %s\n",
+				parport_path, strerror(errno));
+			close(pfd);
+			exit(1);
+		}
+		printf("Using kdebrick kernel accelerator\n");
+	} else {
+		if ((ioctl(pfd, PPEXCL) < 0) || (ioctl(pfd, PPCLAIM) < 0)) {
+			fprintf(stderr, "Failed to lock %s: %s\n",
+				parport_path, strerror(errno));
+			close(pfd);
+			exit(1);
+		}
 	}
 }
 
 static void lpt_closeport(void)
 {
-	if (ioctl(pfd, PPRELEASE) < 0) {
-		fprintf(stderr, "Failed to release %s: %s\n",
-			parport_path, strerror(errno));
+	if (use_kdebrick) {
+		if (ioctl(pfd, KDEBRICK_IOCTL_RELEASE)) {
+			fprintf(stderr, "Failed to release %s: %s\n",
+				parport_path, strerror(errno));
+		}
+	} else {
+		if (ioctl(pfd, PPRELEASE) < 0) {
+			fprintf(stderr, "Failed to release %s: %s\n",
+				parport_path, strerror(errno));
+		}
 	}
 	close(pfd);
 }
@@ -351,6 +370,14 @@ static void tdelay(int secs, int nsecs)
 
 static void test_reset(void)
 {
+	if (use_kdebrick) {
+		if (ioctl(pfd, KDEBRICK_IOCTL_TESTRESET)) {
+			fprintf(stderr, "kdebrick: testreset failed\n");
+			exit(1);
+		}
+		return;
+	}
+
 	clockin(1, 0);		// Run through a handful of clock cycles with TMS high to make sure
 	clockin(1, 0);		// we are in the TEST-LOGIC-RESET state.
 	clockin(1, 0);
@@ -366,6 +393,14 @@ static void set_instr(int instr)
 
 	if (instr == curinstr)
 		return;
+
+	if (use_kdebrick) {
+		if (ioctl(pfd, KDEBRICK_IOCTL_SETINSTR, &instr)) {
+			fprintf(stderr, "kdebrick: set_instr failed\n");
+			exit(1);
+		}
+		return;
+	}
 
 	clockin(1, 0);		/* enter select-dr-scan */
 	clockin(1, 0);		/* enter select-ir-scan */
@@ -384,6 +419,14 @@ static unsigned int ReadWriteData(unsigned int in_data)
 	int i;
 	unsigned int out_data = 0;
 	unsigned char out_bit;
+
+	if (use_kdebrick) {
+		if (ioctl(pfd, KDEBRICK_IOCTL_RWDATA, &in_data)) {
+			fprintf(stderr, "kdebrick: rwdata failed\n");
+			exit(1);
+		}
+		return in_data;
+	}
 
 	clockin(1, 0);		/* enter select-dr-scan */
 	clockin(0, 0);		/* enter capture-dr */
@@ -406,6 +449,14 @@ static inline unsigned int ReadData(void)
 static void WriteData(unsigned int in_data)
 {
 	int i;
+
+	if (use_kdebrick) {
+		if (ioctl(pfd, KDEBRICK_IOCTL_WRITEDATA, &in_data)) {
+			fprintf(stderr, "kdebrick: writedata failed\n");
+			exit(1);
+		}
+		return;
+	}
 
 	clockin(1, 0);		/* enter select-dr-scan */
 	clockin(0, 0);		/* enter capture-dr */
@@ -467,12 +518,48 @@ begin_ejtag_dma_read:
 
 static unsigned int ejtag_dma_read(unsigned int addr)
 {
+	if (use_kdebrick) {
+		struct kdebrick_dma dma;
+
+		dma.addr = addr;
+		dma.control = DMA_WORD;
+		dma.flags = 0;
+		if (ludicrous_speed)
+			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
+		if (ioctl(pfd, KDEBRICK_IOCTL_DMAREAD, &dma)) {
+			fprintf(stderr, "kdebrick: dmaread failed\n");
+			exit(1);
+		}
+		if (dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION)
+			ludicrous_speed_corruption = 1;
+
+		return dma.data;
+	}
+
 	return __ejtag_dma_read(addr, DMA_WORD);
 }
 
 static unsigned int ejtag_dma_read_h(unsigned int addr)
 {
 	unsigned int data;
+
+	if (use_kdebrick) {
+		struct kdebrick_dma dma;
+
+		dma.addr = addr;
+		dma.control = DMA_HALFWORD;
+		dma.flags = 0;
+		if (ludicrous_speed)
+			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
+		if (ioctl(pfd, KDEBRICK_IOCTL_DMAREAD, &dma)) {
+			fprintf(stderr, "kdebrick: dmaread failed\n");
+			exit(1);
+		}
+		if (dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION)
+			ludicrous_speed_corruption = 1;
+
+		return dma.data;
+	}
 
 	data = __ejtag_dma_read(addr, DMA_HALFWORD);
 	// Handle the bigendian/littleendian
@@ -522,11 +609,49 @@ begin_ejtag_dma_write:
 
 static void ejtag_dma_write(unsigned int addr, unsigned int data)
 {
+	if (use_kdebrick) {
+		struct kdebrick_dma dma;
+
+		dma.addr = addr;
+		dma.data = data;
+		dma.control = DMA_WORD;
+		dma.flags = 0;
+		if (ludicrous_speed)
+			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
+		if (ioctl(pfd, KDEBRICK_IOCTL_DMAWRITE, &dma)) {
+			fprintf(stderr, "kdebrick: dmawrite failed\n");
+			exit(1);
+		}
+		if (dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION)
+			ludicrous_speed_corruption = 1;
+
+		return;
+	}
+
 	__ejtag_dma_write(addr, DMA_WORD, data);
 }
 
 static void ejtag_dma_write_h(unsigned int addr, unsigned int data)
 {
+	if (use_kdebrick) {
+		struct kdebrick_dma dma;
+
+		dma.addr = addr;
+		dma.data = data;
+		dma.control = DMA_HALFWORD;
+		dma.flags = 0;
+		if (ludicrous_speed)
+			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
+		if (ioctl(pfd, KDEBRICK_IOCTL_DMAWRITE, &dma)) {
+			fprintf(stderr, "kdebrick: dmawrite failed\n");
+			exit(1);
+		}
+		if (dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION)
+			ludicrous_speed_corruption = 1;
+
+		return;
+	}
+
 	__ejtag_dma_write(addr, DMA_HALFWORD, data);
 }
 
@@ -709,6 +834,19 @@ static void chip_detect(void)
 		// Manual Override CPU Chip ID
 		test_reset();
 		instruction_length = instrlen;
+		if (use_kdebrick) {
+			struct kdebrick_config cfg;
+
+			if (ioctl(pfd, KDEBRICK_IOCTL_GETCONFIG, &cfg)) {
+				fprintf(stderr, "kdebrick: getconfig failed\n");
+				exit(1);
+			}
+			cfg.instruction_length = instruction_length;
+			if (ioctl(pfd, KDEBRICK_IOCTL_SETCONFIG, &cfg)) {
+				fprintf(stderr, "kdebrick: setconfig failed\n");
+				exit(1);
+			}
+		}
 		set_instr(INSTR_IDCODE);
 		id = ReadData();
 		printf("Done\n\n");
@@ -725,6 +863,19 @@ static void chip_detect(void)
 				instruction_length = instrlen;
 			else
 				instruction_length = processor_chip->instr_length;
+			if (use_kdebrick) {
+				struct kdebrick_config cfg;
+
+				if (ioctl(pfd, KDEBRICK_IOCTL_GETCONFIG, &cfg)) {
+					fprintf(stderr, "kdebrick: getconfig failed\n");
+					exit(1);
+				}
+				cfg.instruction_length = instruction_length;
+				if (ioctl(pfd, KDEBRICK_IOCTL_SETCONFIG, &cfg)) {
+					fprintf(stderr, "kdebrick: setconfig failed\n");
+					exit(1);
+				}
+			}
 			set_instr(INSTR_IDCODE);
 			id = ReadData();
 			if (id == processor_chip->chip_id) {
@@ -1359,7 +1510,9 @@ static void show_usage(int argc, char **argv)
 	     "                                  on slow embedded CPUs.\n"
 	     "            --noerasedelays ..... Do not execute delays in the flash erase code.\n"
 	     "                                  Speeds up erasing, but may result in incompletely\n"
-	     "                                  erased flash blocks on slow flashes.\n\n"
+	     "                                  erased flash blocks on slow flashes.\n"
+	     "            --kdebrick .......... Use the kdebrick kernel module for IO operations.\n"
+	     "                                  Brings some speedup due to reduced system call overhead.\n\n"
 	     "            --flashchip XX = Optional (Manual) Flash Chip Selection\n"
 	     "            -----------------------------------------------\n",
 	     argv[0]);
@@ -1399,6 +1552,7 @@ static struct option long_options[] = {
 	{ "parport",		required_argument,	0, 'p', },
 	{ "ludicrous-speed",	no_argument,		0, 'L', },
 	{ "noerasedelays",	no_argument,		0, 'R', },
+	{ "kdebrick",		no_argument,		0, 'k', },
 	{ NULL, },
 };
 
@@ -1414,7 +1568,7 @@ int main(int argc, char **argv)
 
 	run_option = 0;
 	while (1) {
-		c = getopt_long(argc, argv, "hF:b:e:f:rmWBEd:w:s:l:SDi:c:p:L",
+		c = getopt_long(argc, argv, "hF:b:e:f:rmWBEd:w:s:l:SDi:c:p:Lk",
 				long_options, &idx);
 		if (c == -1)
 			break;
@@ -1527,6 +1681,9 @@ int main(int argc, char **argv)
 		case 'R': /* --noerasedelays */
 			no_erase_delays = 1;
 			break;
+		case 'k': /* --kdebrick */
+			use_kdebrick = 1;
+			break;
 		default:
 			fprintf(stderr, "Unknown argument\n");
 			exit(1);
@@ -1550,8 +1707,12 @@ int main(int argc, char **argv)
 		strcpy(inout_filename, AREA_NAME);
 		strcat(inout_filename, ".BIN");
 	}
-	if (strlen(parport_path) == 0)
-		strcpy(parport_path, "/dev/parport0");
+	if (strlen(parport_path) == 0) {
+		if (use_kdebrick)
+			strcpy(parport_path, "/dev/kdebrick0");
+		else
+			strcpy(parport_path, "/dev/parport0");
+	}
 
 	// ----------------------------------
 	// Detect CPU 
