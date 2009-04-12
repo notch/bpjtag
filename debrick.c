@@ -391,9 +391,6 @@ static void set_instr(int instr)
 	int i;
 	static int curinstr = 0xFFFFFFFF;
 
-	if (instr == curinstr)
-		return;
-
 	if (use_kdebrick) {
 		if (ioctl(pfd, KDEBRICK_IOCTL_SETINSTR, &instr)) {
 			fprintf(stderr, "kdebrick: set_instr failed\n");
@@ -401,6 +398,9 @@ static void set_instr(int instr)
 		}
 		return;
 	}
+	if (instr == curinstr)
+		return;
+	curinstr = instr;
 
 	clockin(1, 0);		/* enter select-dr-scan */
 	clockin(1, 0);		/* enter select-ir-scan */
@@ -410,8 +410,6 @@ static void set_instr(int instr)
 		clockin(i == (instruction_length - 1), (instr >> i) & 1);
 	clockin(1, 0);		/* enter update-ir */
 	clockin(0, 0);		/* enter runtest-idle */
-
-	curinstr = instr;
 }
 
 static unsigned int ReadWriteData(unsigned int in_data)
