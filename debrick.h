@@ -121,7 +121,7 @@
 
 
 
-unsigned int pracc_readword_code_module[] = {
+static const unsigned int pracc_readword_code_module[] = {
 	// #
 	// # HairyDairyMaid's Assembler PrAcc Read Word Routine
 	// #
@@ -145,7 +145,7 @@ unsigned int pracc_readword_code_module[] = {
 	0x00000000
 };				// nop
 
-unsigned int pracc_writeword_code_module[] = {
+static const unsigned int pracc_writeword_code_module[] = {
 	// #
 	// # HairyDairyMaid's Assembler PrAcc Write Word Routine
 	// #
@@ -169,7 +169,7 @@ unsigned int pracc_writeword_code_module[] = {
 	0x00000000
 };				// nop
 
-unsigned int pracc_readhalf_code_module[] = {
+static const unsigned int pracc_readhalf_code_module[] = {
 	// #
 	// # HairyDairyMaid's Assembler PrAcc Read HalfWord Routine
 	// #
@@ -193,7 +193,7 @@ unsigned int pracc_readhalf_code_module[] = {
 	0x00000000
 };				// nop
 
-unsigned int pracc_writehalf_code_module[] = {
+static const unsigned int pracc_writehalf_code_module[] = {
 	// #
 	// # HairyDairyMaid's Assembler PrAcc Write HalfWord Routine
 	// #

@@ -653,7 +653,7 @@ static void ejtag_dma_write_h(unsigned int addr, unsigned int data)
 	__ejtag_dma_write(addr, DMA_HALFWORD, data);
 }
 
-static void ExecuteDebugModule(unsigned int *pmodule)
+static void ExecuteDebugModule(const unsigned int *pmodule)
 {
 	unsigned int ctrl_reg;
 	unsigned int address;
