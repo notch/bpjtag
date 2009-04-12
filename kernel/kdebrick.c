@@ -420,14 +420,7 @@ static long kdebrick_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 static long kdebrick_compat_ioctl(struct file *file, unsigned int cmd,
 				  unsigned long arg)
 {
-	struct kdebrick *d = file->private_data;
-	long ret;
-
-	mutex_lock(&d->mutex);
-	ret = kdebrick_do_ioctl(file, cmd, (unsigned long)compat_ptr(arg));
-	mutex_unlock(&d->mutex);
-
-	return ret;
+	return kdebrick_ioctl(file, cmd, (unsigned long)compat_ptr(arg));
 }
 
 static int kdebrick_open(struct inode *inode, struct file *file)
