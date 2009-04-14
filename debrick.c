@@ -26,6 +26,7 @@
 #include <time.h>
 #include <errno.h>
 #include <getopt.h>
+#include <stdint.h>
 
 #include "debrick.h"
 #include "kernel/kdebrick.h"
@@ -277,6 +278,23 @@ static flash_chip_type flash_chip_list[] = {
 	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 };
 
+
+static inline uint32_t cpu_to_le32(uint32_t x)
+{
+	uint8_t ret[4];
+
+	ret[0] = x;
+	ret[1] = x >> 8;
+	ret[2] = x >> 16;
+	ret[3] = x >> 24;
+
+	return *(uint32_t *)ret;
+}
+
+static inline uint32_t le32_to_cpu(uint32_t x)
+{
+	return cpu_to_le32(x);
+}
 
 static void lpt_openport(void)
 {
@@ -1004,7 +1022,6 @@ static void run_backup(char *filename, unsigned int start, unsigned int length)
 		}
 
 		data = ejtag_read(addr);
-		fwrite((unsigned char *)&data, 1, sizeof(data), fd);
 
 		if (silent_mode) {
 			if ((counter & 0x3FF) == 0)
@@ -1012,6 +1029,8 @@ static void run_backup(char *filename, unsigned int start, unsigned int length)
 		} else
 			printf("%08x%c", data, (addr & 0xF) == 0xC ? '\n' : ' ');
 
+		data = cpu_to_le32(data);
+		fwrite((unsigned char *)&data, 1, sizeof(data), fd);
 		fflush(stdout);
 	}
 	fclose(fd);
@@ -1248,6 +1267,7 @@ static void run_flash(char *filename, unsigned int start, unsigned int length)
 		}
 
 		fread((unsigned char *)&data, 1, sizeof(data), fd);
+		data = le32_to_cpu(data);
 		if (data != 0xFFFFFFFF)
 			sflash_write_word(addr, data);
 
