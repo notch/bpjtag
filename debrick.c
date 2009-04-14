@@ -27,6 +27,8 @@
 #include <errno.h>
 #include <getopt.h>
 #include <stdint.h>
+#include <time.h>
+#include <sys/time.h>
 
 #include "debrick.h"
 #include "kernel/kdebrick.h"
@@ -276,6 +278,11 @@ static const struct flash_chip flash_chip_list[] = {
 };
 
 
+#undef min
+#undef max
+#define min(a, b)	((a) < (b) ? (a) : (b))
+#define max(a, b)	((a) > (b) ? (a) : (b))
+
 static inline uint32_t cpu_to_le32(uint32_t x)
 {
 	uint8_t ret[4];
@@ -344,14 +351,69 @@ static void tdelay(int secs, int nsecs)
 	nanosleep(&delay, NULL);
 }
 
+static unsigned int tck_delays_per_usec;
+
+static void __attribute__((noinline)) __tck_delay(void)
+{
+	static volatile int i;
+	i = 0; i = 1; i = 2; i = 3; i = 4;
+	i = 5; i = 6; i = 7; i = 8; i = 9;
+}
+
 static inline void do_tck_delay(void)
 {
-static volatile int x;
-for (x = 0; x < 50; x++);
-	/*FIXME: MUCH too slow!
-	if (tck_delay)
-		tdelay(0, tck_delay * 1000);
-	*/
+	unsigned int i;
+
+	if (tck_delay) {
+		for (i = tck_delays_per_usec * tck_delay; i; i--)
+			__tck_delay();
+	}
+}
+
+static uint64_t do_calibrate_tck_delay(unsigned int testloops)
+{
+	unsigned int i;
+	uint64_t nr_usecs;
+	struct timeval start, stop;
+
+	gettimeofday(&start, NULL);
+	for (i = testloops; i; i--)
+		__tck_delay();
+	gettimeofday(&stop, NULL);
+
+	nr_usecs = (stop.tv_sec - start.tv_sec) * 1000 * 1000;
+	if (nr_usecs) {
+		nr_usecs += 1000 * 1000 - start.tv_usec;
+		nr_usecs += stop.tv_usec;
+	} else
+		nr_usecs += stop.tv_usec - start.tv_usec;
+
+	return nr_usecs;
+}
+
+static void calibrate_tck_delay(void)
+{
+	const unsigned int testloops = 10000000;
+	uint64_t a, b, c, d, nr_usecs;
+
+	printf("Calibrating TCK delay loop...  ");
+	fflush(stdout);
+
+	a = do_calibrate_tck_delay(testloops);
+	tdelay(0, 100 * 1000 * 1000);
+	b = do_calibrate_tck_delay(testloops);
+	tdelay(0, 150 * 1000 * 1000);
+	c = do_calibrate_tck_delay(testloops);
+	tdelay(0, 50 * 1000 * 1000);
+	d = do_calibrate_tck_delay(testloops);
+
+	nr_usecs = min(a, min(b, min(c, d)));
+
+	tck_delays_per_usec = testloops / nr_usecs;
+	if (!tck_delays_per_usec)
+		tck_delays_per_usec = 1;
+
+	printf("%u loops per usec\n", tck_delays_per_usec);
 }
 
 static inline void clockin(int tms, int tdi)
@@ -865,9 +927,11 @@ static void chip_detect(void)
 			exit(1);
 		}
 	}
-	if (tck_delay)
+	if (tck_delay) {
+		if (!use_kdebrick)
+			calibrate_tck_delay();
 		printf("Set TCK-delay to: %u\n", tck_delay);
-	else
+	} else
 		printf("Set TCK-delay to: disabled\n");
 
 	printf("Probing bus ... ");
