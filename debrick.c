@@ -78,13 +78,13 @@ static unsigned int address_register;
 static int USE_DMA = 0;
 static int ejtag_version = 0;
 
-typedef struct _processor_chip_type {
+struct processor_chip {
 	unsigned int chip_id;	// Processor Chip ID
 	int instr_length;	// EJTAG Instruction Length
 	char *chip_descr;	// Processor Chip Description
-} processor_chip_type;
+};
 
-processor_chip_type processor_chip_list[] = {
+static const struct processor_chip processor_chip_list[] = {
 	{0x0471017F, 5, "Broadcom BCM4702 Rev 1 CPU"},
 	{0x1471217F, 8, "Broadcom BCM4712 Rev 1 CPU"},
 	{0x2471217F, 8, "Broadcom BCM4712 Rev 2 CPU"},
@@ -95,20 +95,17 @@ processor_chip_type processor_chip_list[] = {
 	{0x0634817F, 5, "Broadcom BCM6348 Rev 1 CPU"},
 	{0x0634517F, 5, "Broadcom BCM6345 Rev 1 CPU"},	// BCM6345 Not Completely Verified Yet
 	{0x0000100F, 5, "TI AR7WRD TNETD7300GDU Rev 1 CPU"},	// TI AR7WRD Only Partially Verified
-	{0, 0, 0}
+	{ 0, } /* End of list */
 };
 
-typedef struct _flash_area_type {
+struct flash_area {
 	unsigned int chip_size;
 	char *area_name;
 	unsigned int area_start;
 	unsigned int area_length;
-} flash_area_type;
+};
 
-static flash_area_type flash_area_list[] = {
-	//---------   ----------     -----------  ------------
-	//chip_size   area_name      area_start   area_length
-	//---------   ----------     -----------  ------------
+static const struct flash_area flash_area_list[] = {
 	{size2MB, "CFE", 0x1FC00000, 0x40000},
 	{size4MB, "CFE", 0x1FC00000, 0x40000},
 	{size8MB, "CFE", 0x1C000000, 0x40000},
@@ -129,10 +126,10 @@ static flash_area_type flash_area_list[] = {
 	{size8MB, "WHOLEFLASH", 0x1C000000, 0x800000},
 	{size16MB, "WHOLEFLASH", 0x1C000000, 0x800000},
 
-	{0, 0, 0, 0}
+	{ 0, } /* End of list */
 };
 
-typedef struct _flash_chip_type {
+struct flash_chip {
 	unsigned int vendid;	// Manufacturer Id
 	unsigned int devid;	// Device Id
 	unsigned int flash_size;	// Total size in MBytes
@@ -146,16 +143,16 @@ typedef struct _flash_chip_type {
 	unsigned int region3_size;	// Region 3 block size
 	unsigned int region4_num;	// Region 4 block count
 	unsigned int region4_size;	// Region 4 block size
-} flash_chip_type;
+};
 
-static flash_chip_type flash_chip_list[] = {
-	// Select these manually
+static const struct flash_chip flash_chip_list[] = {
+	/* Select these manually */
 	{0xDEAD, 0xBEEF, size8MB, CMD_TYPE_AMD, "MX29LV640DB (8MB)", 8, size8K, 127,
 	 size64K, 0, 0, 0, 0},
 	{0xDEAD, 0xBEEF, size8MB, CMD_TYPE_AMD, "MX29LV640DT (8MB)", 127, size64K, 8,
 	 size8K, 0, 0, 0, 0},
 
-	// Can be auto probed...
+	/* Can be auto probed... */
 
 	{0x0001, 0x2249, size2MB, CMD_TYPE_AMD, "AMD 29lv160DB 1Mx16 BotB   (2MB)", 1,
 	 size16K, 2, size8K, 1, size32K, 31, size64K},
@@ -213,12 +210,16 @@ static flash_chip_type flash_chip_list[] = {
 	 size16K, 2, size8K, 1, size32K, 63, size64K},
 	{0x0004, 0x22F6, size4MB, CMD_TYPE_AMD, "MBM29LV320TE 2Mx16 TopB    (4MB)", 63,
 	 size64K, 1, size32K, 2, size8K, 1, size16K},
-	// --- These definitions were defined based off the flash.h in GPL source from Linksys, but appear incorrect ---
-	//   { 0x00C2, 0x22A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)"   ,1,size16K,    2,size8K,     1,size32K,  63,size64K },
-	//   { 0x00C2, 0x00A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)"   ,1,size16K,    2,size8K,     1,size32K,  63,size64K },
-	//   { 0x00C2, 0x00A7, size4MB, CMD_TYPE_AMD, "MX29LV320T 2Mx16 TopB      (4MB)"   ,63,size64K,   1,size32K,    2,size8K,   1,size16K  },
-	//   { 0x00C2, 0x22A7, size4MB, CMD_TYPE_AMD, "MX29LV320T 2Mx16 TopB      (4MB)"   ,63,size64K,   1,size32K,    2,size8K,   1,size16K  },
-	// --- These below are proper however ---
+	/* --- These definitions were defined based off the flash.h in GPL source from Linksys, but appear incorrect ---
+	{0x00C2, 0x22A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)",
+	 1, size16K, 2, size8K, 1, size32K, 63, size64K},
+	{0x00C2, 0x00A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)",
+	 1, size16K, 2, size8K, 1, size32K, 63, size64K},
+	{0x00C2, 0x00A7, size4MB, CMD_TYPE_AMD, "MX29LV320T 2Mx16 TopB      (4MB)",
+	 63, size64K, 1, size32K, 2, size8K, 1, size16K},
+	{0x00C2, 0x22A7, size4MB, CMD_TYPE_AMD, "MX29LV320T 2Mx16 TopB      (4MB)",
+	 63, size64K, 1, size32K, 2, size8K, 1, size16K},
+	*/
 	{0x00C2, 0x22A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)", 8,
 	 size8K, 63, size64K, 0, 0, 0, 0},
 	{0x00C2, 0x00A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)", 8,
@@ -227,7 +228,6 @@ static flash_chip_type flash_chip_list[] = {
 	 size64K, 8, size8K, 0, 0, 0, 0},
 	{0x00C2, 0x22A7, size4MB, CMD_TYPE_AMD, "MX29LV320T 2Mx16 TopB      (4MB)", 63,
 	 size64K, 8, size8K, 0, 0, 0, 0},
-	//--- End of Changes ----
 	{0x00BF, 0x2783, size4MB, CMD_TYPE_SST, "SST39VF320 2Mx16           (4MB)", 64,
 	 size64K, 0, 0, 0, 0, 0, 0},
 	{0x0020, 0x22CB, size4MB, CMD_TYPE_AMD, "ST 29w320DB 2Mx16 BotB     (4MB)", 1,
@@ -240,7 +240,6 @@ static flash_chip_type flash_chip_list[] = {
 	 size16K, 2, size8K, 1, size32K, 63, size64K},
 	{0x0098, 0x009A, size4MB, CMD_TYPE_AMD, "TC58FVT321 2Mx16 TopB      (4MB)", 63,
 	 size64K, 1, size32K, 2, size8K, 1, size16K},
-	// --- Add a few new Flash Chip Defintions ---
 	{0x001F, 0x00C0, size4MB, CMD_TYPE_AMD, "AT49BV/LV16X 2Mx16 BotB    (4MB)", 8,
 	 size8K, 63, size64K, 0, 0, 0, 0},
 	{0x001F, 0x00C2, size4MB, CMD_TYPE_AMD, "AT49BV/LV16XT 2Mx16 TopB   (4MB)", 63,
@@ -257,7 +256,6 @@ static flash_chip_type flash_chip_list[] = {
 	 size16K, 2, size8K, 1, size32K, 31, size64K},
 	{0x0020, 0x22c4, size2MB, CMD_TYPE_AMD, "ST M29W160ET 1Mx16 TopB    (2MB)", 31,
 	 size64K, 1, size32K, 2, size8K, 1, size16K},
-	// --- Add a few new Flash Chip Defintions ---
 	{0x00BF, 0x234B, size4MB, CMD_TYPE_SST, "SST39VF1601 1Mx16 BotB     (2MB)", 64,
 	 size32K, 0, 0, 0, 0, 0, 0},
 	{0x00BF, 0x234A, size4MB, CMD_TYPE_SST, "SST39VF1602 1Mx16 TopB     (2MB)", 64,
@@ -270,12 +268,11 @@ static flash_chip_type flash_chip_list[] = {
 	 size32K, 0, 0, 0, 0, 0, 0},
 	{0x00BF, 0x236A, size4MB, CMD_TYPE_SST, "SST39VF6402 4Mx16 TopB     (8MB)", 256,
 	 size32K, 0, 0, 0, 0, 0, 0},
-	// --- Add a few new Flash Chip Defintions ---
 	{0x00EC, 0x2275, size2MB, CMD_TYPE_AMD, "K8D1716UTC  1Mx16 TopB     (2MB)", 31,
 	 size64K, 8, size8K, 0, 0, 0, 0},
 	{0x00EC, 0x2277, size2MB, CMD_TYPE_AMD, "K8D1716UBC  1Mx16 BotB     (2MB)", 8,
 	 size8K, 31, size64K, 0, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	{0, } /* End of list */
 };
 
 
@@ -852,7 +849,7 @@ static void chip_shutdown(void)
 static void chip_detect(void)
 {
 	unsigned int id = 0x0;
-	processor_chip_type *processor_chip = processor_chip_list;
+	const struct processor_chip *processor_chip = processor_chip_list;
 
 	lpt_openport();
 	if (use_kdebrick) {
@@ -1333,8 +1330,8 @@ static void define_block(unsigned int block_count, unsigned int block_size)
 
 static void identify_flash_part(void)
 {
-	flash_chip_type *flash_chip = flash_chip_list;
-	flash_area_type *flash_area = flash_area_list;
+	const struct flash_chip *flash_chip = flash_chip_list;
+	const struct flash_area *flash_area = flash_area_list;
 
 	// Important for these to initialize to zero
 	block_addr = 0;
@@ -1416,7 +1413,7 @@ static void identify_flash_part(void)
 
 static void sflash_config(void)
 {
-	flash_chip_type *flash_chip = flash_chip_list;
+	const struct flash_chip *flash_chip = flash_chip_list;
 	int counter = 0;
 
 	printf("\nManual Flash Selection ... ");
@@ -1499,9 +1496,8 @@ again:
 
 static void show_usage(int argc, char **argv)
 {
-
-	flash_chip_type *flash_chip = flash_chip_list;
-	processor_chip_type *processor_chip = processor_chip_list;
+	const struct flash_chip *flash_chip = flash_chip_list;
+	const struct processor_chip *processor_chip = processor_chip_list;
 	int counter = 0;
 
 	printf(" ABOUT: This program reads/writes flash memory on the WRT54G/GS and\n"
