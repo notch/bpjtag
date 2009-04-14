@@ -38,9 +38,11 @@
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
 #include <linux/compat.h>
+#include <linux/delay.h>
 
 
 #define CHRDEV		"kdebrick"
+#define MAX_TCK_DELAY	1000
 
 
 struct kdebrick {
@@ -52,6 +54,12 @@ struct kdebrick {
 };
 
 
+static inline void tck_delay(struct kdebrick *d)
+{
+	if (d->config.tck_delay)
+		udelay(d->config.tck_delay);
+}
+
 static inline void clockin(struct kdebrick *d, int tms, int tdi)
 {
 	unsigned char data;
@@ -61,9 +69,11 @@ static inline void clockin(struct kdebrick *d, int tms, int tdi)
 
 	data = (0 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
 	parport_write_data(d->pdev->port, data);
+	tck_delay(d);
 
 	data = (1 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
 	parport_write_data(d->pdev->port, data);
+	tck_delay(d);
 }
 
 static inline unsigned char clockin_tdo(struct kdebrick *d, int tms, int tdi)
@@ -389,6 +399,7 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 	case KDEBRICK_IOCTL_SETCONFIG: {
 		if (copy_from_user(&d->config, argp, sizeof(d->config)))
 			return -EFAULT;
+		d->config.tck_delay = min(d->config.tck_delay, (u32)MAX_TCK_DELAY);
 		break;
 	}
 	case KDEBRICK_IOCTL_GETCONFIG: {

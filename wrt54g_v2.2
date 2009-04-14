@@ -1,7 +1,9 @@
 #!/bin/bash
 
-set -e
-LOAD_KDEBRICK=1
+args=
+
+#LOAD_KDEBRICK=1
 . common.sh
 
-exec ./debrick --ludicrous-speed --kdebrick --silent $@
+args="$args --silent --flashchip 18 --tckdelay 1"
+exec ./debrick $args $@

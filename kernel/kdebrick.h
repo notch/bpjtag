@@ -42,6 +42,7 @@ struct kdebrick_dma {
 
 struct kdebrick_config {
 	__u32 instruction_length;
+	__u32 tck_delay;
 };
 
 #define KDEBRICK_IOCTL_CLAIM		_IO(__KDEBRICK_IOCTL,	0)

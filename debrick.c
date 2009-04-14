@@ -54,6 +54,7 @@ static int ludicrous_speed = 0;
 static int ludicrous_speed_corruption = 0;
 static int no_erase_delays = 0;
 static int use_kdebrick = 0; /* use kernel accelerator? */
+static unsigned int tck_delay = 0;
 
 static char flash_part[128];
 static unsigned int flash_size = 0;
@@ -319,6 +320,25 @@ static void lpt_closeport(void)
 	close(pfd);
 }
 
+static void tdelay(int secs, int nsecs)
+{
+	struct timespec delay;
+
+	delay.tv_sec = secs;
+	delay.tv_nsec = nsecs;
+	nanosleep(&delay, NULL);
+}
+
+static inline void do_tck_delay(void)
+{
+static volatile int x;
+for (x = 0; x < 50; x++);
+	/*FIXME: MUCH too slow!
+	if (tck_delay)
+		tdelay(0, tck_delay * 1000);
+	*/
+}
+
 static inline void clockin(int tms, int tdi)
 {
 	unsigned char data;
@@ -333,6 +353,7 @@ static inline void clockin(int tms, int tdi)
 		fprintf(stderr, "clockin: parport IOCTL failed.\n");
 		exit(1);
 	}
+	do_tck_delay();
 
 	data = (1 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
 	err = ioctl(pfd, PPWDATA, &data);
@@ -340,6 +361,7 @@ static inline void clockin(int tms, int tdi)
 		fprintf(stderr, "clockin: parport IOCTL failed.\n");
 		exit(1);
 	}
+	do_tck_delay();
 }
 
 static inline unsigned char clockin_tdo(int tms, int tdi)
@@ -357,15 +379,6 @@ static inline unsigned char clockin_tdo(int tms, int tdi)
 	data = !!(data & (1 << TDO));
 
 	return data;
-}
-
-static void tdelay(int secs, int nsecs)
-{
-	struct timespec delay;
-
-	delay.tv_sec = secs;
-	delay.tv_nsec = nsecs;
-	nanosleep(&delay, NULL);
 }
 
 static void test_reset(void)
@@ -821,10 +834,26 @@ static void chip_shutdown(void)
 static void chip_detect(void)
 {
 	unsigned int id = 0x0;
-
 	processor_chip_type *processor_chip = processor_chip_list;
 
 	lpt_openport();
+	if (use_kdebrick) {
+		struct kdebrick_config cfg;
+
+		if (ioctl(pfd, KDEBRICK_IOCTL_GETCONFIG, &cfg)) {
+			fprintf(stderr, "kdebrick: getconfig failed\n");
+			exit(1);
+		}
+		cfg.tck_delay = tck_delay;
+		if (ioctl(pfd, KDEBRICK_IOCTL_SETCONFIG, &cfg)) {
+			fprintf(stderr, "kdebrick: setconfig failed\n");
+			exit(1);
+		}
+	}
+	if (tck_delay)
+		printf("Set TCK-delay to: %u\n", tck_delay);
+	else
+		printf("Set TCK-delay to: disabled\n");
 
 	printf("Probing bus ... ");
 
@@ -902,7 +931,7 @@ static void chip_detect(void)
 	printf("    3) Improper JTAG Cable.\n");
 	printf("    4) Unrecognized CPU Chip ID.\n");
 
-	chip_shutdown();;
+	chip_shutdown();
 	exit(0);
 }
 
@@ -1490,6 +1519,7 @@ static void show_usage(int argc, char **argv)
 	     "            --flash custom\n\n"
 	     "            Optional Switches\n\n"
 	     "            --file FILENAME ..... The filename of the image (output or input)\n"
+	     "            --tckdelay USEC ..... TCK signal delay (in microseconds)\n"
 	     "            --noreset ........... prevent Issuing EJTAG CPU reset\n"
 	     "            --noemw ............. prevent Enabling Memory Writes\n"
 	     "            --nocwd ............. prevent Clearing CPU Watchdog Timer\n"
@@ -1551,6 +1581,7 @@ static struct option long_options[] = {
 	{ "ludicrous-speed",	no_argument,		0, 'L', },
 	{ "noerasedelays",	no_argument,		0, 'R', },
 	{ "kdebrick",		no_argument,		0, 'k', },
+	{ "tckdelay",		required_argument,	0, 't', },
 	{ NULL, },
 };
 
@@ -1566,7 +1597,7 @@ int main(int argc, char **argv)
 
 	run_option = 0;
 	while (1) {
-		c = getopt_long(argc, argv, "hF:b:e:f:rmWBEd:w:s:l:SDi:c:p:Lk",
+		c = getopt_long(argc, argv, "hF:b:e:f:rmWBEd:w:s:l:SDi:c:p:Lkt:",
 				long_options, &idx);
 		if (c == -1)
 			break;
@@ -1681,6 +1712,9 @@ int main(int argc, char **argv)
 			break;
 		case 'k': /* --kdebrick */
 			use_kdebrick = 1;
+			break;
+		case 't': /* --tckdelay */
+			tck_delay = strtoul(optarg, NULL, 10);
 			break;
 		default:
 			fprintf(stderr, "Unknown argument\n");

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 function unload_module
 {
 	local module="$1"
@@ -25,5 +27,15 @@ if [ -n "$LOAD_KDEBRICK" ]; then
 		unload_module lp
 		unload_module ppdev
 		insmod ./kernel/kdebrick.ko
+		sleep 1
+	fi
+	args="$args --kdebrick"
+else
+	if [ -z "$(lsmod | grep ppdev)" ]; then
+		load_module parport
+		load_module parport_pc
+		unload_module kdebrick
+		load_module ppdev
+		sleep 1
 	fi
 fi
