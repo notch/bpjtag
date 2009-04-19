@@ -1,5 +1,6 @@
 debrick
 .tmp_versions
+user.sh
 
 *.o
 *.swp

@@ -20,6 +20,10 @@ function load_module
 	fi
 }
 
+if [ -r "user.sh" ]; then
+	. user.sh
+fi
+
 if [ -n "$LOAD_KDEBRICK" ]; then
 	if [ -z "$(lsmod | grep kdebrick)" ]; then
 		load_module parport

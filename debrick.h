@@ -41,24 +41,19 @@
 
 #define RETRY_ATTEMPTS 16
 
-// ------------------------------------------------------
-// --- Choose only one cable specific section below
-// ------------------------------------------------------
-//
-// --- Xilinx Type Cable ---
-//#define TDI     0
-//#define TCK     1
-//#define TMS     2
-//#define TDO     4
-//
-// --- Wiggler Type Cable ---
-#define TDI      3
-#define TCK      2
-#define TMS      1
-#define TDO      7
-#define TRST_N   4
+/* --- Xilinx Type Cable --- */
+#define TDI		0
+#define TCK		1
+#define TMS		2
+#define TDO		4
 
-//
+/* --- Wiggler Type Cable --- */
+#define WTDI		3
+#define WTCK		2
+#define WTMS		1
+#define WTDO		7
+#define WTRST_N		4
+
 // ------------------------------------------------------
 
 // --- Some EJTAG Instruction Registers ---

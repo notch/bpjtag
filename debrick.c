@@ -58,6 +58,7 @@ static int ludicrous_speed_corruption = 0;
 static int no_erase_delays = 0;
 static int use_kdebrick = 0; /* use kernel accelerator? */
 static unsigned int tck_delay = 0;
+static int use_wiggler = 0; /* Use wiggler-type cable? */
 
 static char flash_part[128];
 static unsigned int flash_size = 0;
@@ -451,7 +452,10 @@ static inline void clockin(int tms, int tdi)
 	tms = tms ? 1 : 0;
 	tdi = tdi ? 1 : 0;
 
-	data = (0 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
+	if (use_wiggler)
+		data = (0 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 << WTRST_N);
+	else
+		data = (0 << TCK) | (tms << TMS) | (tdi << TDI);
 	err = ioctl(pfd, PPWDATA, &data);
 	if (err) {
 		fprintf(stderr, "clockin: parport IOCTL failed.\n");
@@ -459,7 +463,10 @@ static inline void clockin(int tms, int tdi)
 	}
 	do_tck_delay();
 
-	data = (1 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
+	if (use_wiggler)
+		data = (1 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 << WTRST_N);
+	else
+		data = (1 << TCK) | (tms << TMS) | (tdi << TDI);
 	err = ioctl(pfd, PPWDATA, &data);
 	if (err) {
 		fprintf(stderr, "clockin: parport IOCTL failed.\n");
@@ -479,8 +486,11 @@ static inline unsigned char clockin_tdo(int tms, int tdi)
 		fprintf(stderr, "clockin: parport IOCTL failed.\n");
 		exit(1);
 	}
-	data ^= (1 << TDO);
-	data = !!(data & (1 << TDO));
+	if (use_wiggler) {
+		data ^= (1 << WTDO);
+		data = !!(data & (1 << WTDO));
+	} else
+		data = !!(data & (1 << TDO));
 
 	return data;
 }
@@ -949,6 +959,9 @@ static void chip_detect(void)
 			exit(1);
 		}
 		cfg.tck_delay = tck_delay;
+		cfg.flags &= ~KDEBRICK_CONF_WIGGLER;
+		if (use_wiggler)
+			cfg.flags |= KDEBRICK_CONF_WIGGLER;
 		if (ioctl(pfd, KDEBRICK_IOCTL_SETCONFIG, &cfg)) {
 			fprintf(stderr, "kdebrick: setconfig failed\n");
 			exit(1);
@@ -1647,7 +1660,8 @@ static void show_usage(int argc, char **argv)
 	     "                                  Speeds up erasing, but may result in incompletely\n"
 	     "                                  erased flash blocks on slow flashes.\n"
 	     "            --kdebrick .......... Use the kdebrick kernel module for IO operations.\n"
-	     "                                  Brings some speedup due to reduced system call overhead.\n\n"
+	     "                                  Brings some speedup due to reduced system call overhead.\n"
+	     "            --wiggler ........... Use a Wiggler-type cable. (Otherwise use Xilinx-type cable)\n\n"
 	     "            --flashchip XX = Optional (Manual) Flash Chip Selection\n"
 	     "            -----------------------------------------------\n",
 	     argv[0]);
@@ -1689,6 +1703,7 @@ static struct option long_options[] = {
 	{ "noerasedelays",	no_argument,		0, 'R', },
 	{ "kdebrick",		no_argument,		0, 'k', },
 	{ "tckdelay",		required_argument,	0, 't', },
+	{ "wiggler",		no_argument,		0, 'I', },
 	{ NULL, },
 };
 
@@ -1822,6 +1837,9 @@ int main(int argc, char **argv)
 			break;
 		case 't': /* --tckdelay */
 			tck_delay = strtoul(optarg, NULL, 10);
+			break;
+		case 'I': /* --wiggler */
+			use_wiggler = 1;
 			break;
 		default:
 			fprintf(stderr, "Unknown argument\n");

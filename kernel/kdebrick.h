@@ -40,9 +40,14 @@ struct kdebrick_dma {
 	__u32 flags;
 };
 
+enum kdebrick_config_flags {
+	KDEBRICK_CONF_WIGGLER		= (1 << 0),
+};
+
 struct kdebrick_config {
 	__u32 instruction_length;
 	__u32 tck_delay;
+	__u32 flags;
 };
 
 #define KDEBRICK_IOCTL_CLAIM		_IO(__KDEBRICK_IOCTL,	0)

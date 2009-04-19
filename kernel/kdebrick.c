@@ -67,11 +67,17 @@ static inline void clockin(struct kdebrick *d, int tms, int tdi)
 	tms = tms ? 1 : 0;
 	tdi = tdi ? 1 : 0;
 
-	data = (0 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
+	if (d->config.flags & KDEBRICK_CONF_WIGGLER)
+		data = (0 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 << WTRST_N);
+	else
+		data = (0 << TCK) | (tms << TMS) | (tdi << TDI);
 	parport_write_data(d->pdev->port, data);
 	tck_delay(d);
 
-	data = (1 << TCK) | (tms << TMS) | (tdi << TDI) | (1 << TRST_N);
+	if (d->config.flags & KDEBRICK_CONF_WIGGLER)
+		data = (1 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 << WTRST_N);
+	else
+		data = (1 << TCK) | (tms << TMS) | (tdi << TDI);
 	parport_write_data(d->pdev->port, data);
 	tck_delay(d);
 }
@@ -82,8 +88,11 @@ static inline unsigned char clockin_tdo(struct kdebrick *d, int tms, int tdi)
 
 	clockin(d, tms, tdi);
 	data = parport_read_status(d->pdev->port);
-	data ^= (1 << TDO);
-	data = !!(data & (1 << TDO));
+	if (d->config.flags & KDEBRICK_CONF_WIGGLER) {
+		data ^= (1 << WTDO);
+		data = !!(data & (1 << WTDO));
+	} else
+		data = !!(data & (1 << TDO));
 
 	return data;
 }
