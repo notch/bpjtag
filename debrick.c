@@ -1637,6 +1637,7 @@ static void show_usage(int argc, char **argv)
 	     "            --flash kernel\n"
 	     "            --flash wholeflash\n"
 	     "            --flash custom\n\n"
+	     "            --probeonly ......... Only probe the device (no flash operations)\n\n"
 	     "            Optional Switches\n\n"
 	     "            --file FILENAME ..... The filename of the image (output or input)\n"
 	     "            --tckdelay USEC ..... TCK signal delay (in microseconds)\n"
@@ -1685,6 +1686,7 @@ static struct option long_options[] = {
 	{ "backup",		required_argument,	0, 'b', },
 	{ "erase",		required_argument,	0, 'e', },
 	{ "flash",		required_argument,	0, 'f', },
+	{ "probeonly",		no_argument,		0, 'P', },
 	{ "noreset",		no_argument,		0, 'r', },
 	{ "noemw",		no_argument,		0, 'm', },
 	{ "nocwd",		no_argument,		0, 'W', },
@@ -1709,7 +1711,13 @@ static struct option long_options[] = {
 
 int main(int argc, char **argv)
 {
-	int run_option;
+	enum {
+		RUN_NOTHING,
+		RUN_BACKUP,
+		RUN_ERASE,
+		RUN_FLASH,
+		RUN_PROBEONLY,
+	} run_option;
 	int c, idx;
 
 	printf("\n");
@@ -1717,9 +1725,9 @@ int main(int argc, char **argv)
 	printf("Broadcom-MIPS EJTAG Debrick Utility\n");
 	printf("===================================\n\n");
 
-	run_option = 0;
+	run_option = RUN_NOTHING;
 	while (1) {
-		c = getopt_long(argc, argv, "hF:b:e:f:rmWBEd:w:s:l:SDi:c:p:Lkt:",
+		c = getopt_long(argc, argv, "hF:b:e:f:PrmWBEd:w:s:l:SDi:c:p:Lkt:I",
 				long_options, &idx);
 		if (c == -1)
 			break;
@@ -1731,7 +1739,7 @@ int main(int argc, char **argv)
 			strncpy(inout_filename, optarg, sizeof(inout_filename) - 1);
 			break;
 		case 'b': /* --backup */
-			run_option = 1;
+			run_option = RUN_BACKUP;
 			if (strcasecmp(optarg, "cfe") == 0) {
 				strcpy(AREA_NAME, "CFE");
 			} else if (strcasecmp(optarg, "nvram") == 0) {
@@ -1748,7 +1756,7 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'e': /* --erase */
-			run_option = 2;
+			run_option = RUN_ERASE;
 			if (strcasecmp(optarg, "cfe") == 0) {
 				strcpy(AREA_NAME, "CFE");
 			} else if (strcasecmp(optarg, "nvram") == 0) {
@@ -1765,7 +1773,7 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'f': /* --flash */
-			run_option = 3;
+			run_option = RUN_FLASH;
 			if (strcasecmp(optarg, "cfe") == 0) {
 				strcpy(AREA_NAME, "CFE");
 			} else if (strcasecmp(optarg, "nvram") == 0) {
@@ -1780,6 +1788,9 @@ int main(int argc, char **argv)
 				fprintf(stderr, "Invalid argument to -flash\n");
 				return 1;
 			}
+			break;
+		case 'P': /* --probeonly */
+			run_option = RUN_PROBEONLY;
 			break;
 		case 'r': /* --noreset */
 			issue_reset = 0;
@@ -1847,9 +1858,9 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (run_option == 0) {
+	if (run_option == RUN_NOTHING) {
 		show_usage(argc, argv);
-		printf("No action (backup/erase/flash) specified\n");
+		printf("No action (backup/erase/flash/probeonly) specified\n");
 		exit(1);
 	}
 	if (strcasecmp(AREA_NAME, "CUSTOM") == 0) {
@@ -1949,15 +1960,15 @@ int main(int argc, char **argv)
 	// Execute Requested Operation
 	// ----------------------------------
 	if ((flash_size > 0) && (AREA_LENGTH > 0)) {
-		if (run_option == 1)
+		if (run_option == RUN_BACKUP)
 			run_backup(inout_filename, AREA_START, AREA_LENGTH);
-		if (run_option == 2)
+		if (run_option == RUN_ERASE)
 			run_erase(AREA_START, AREA_LENGTH);
-		if (run_option == 3)
+		if (run_option == RUN_FLASH)
 			run_flash(inout_filename, AREA_START, AREA_LENGTH);
 	}
 
-	if (!ludicrous_speed && run_option != 2) {
+	if (!ludicrous_speed && (run_option == RUN_BACKUP || run_option == RUN_FLASH)) {
 		if (ludicrous_speed_corruption) {
 			printf("\nInfo: Usage of --ludicrous-speed would have corrupted data\n"
 			       "in this run. Luckily you did not use it. :)\n");
