@@ -96,16 +96,18 @@
 #define DMA_WORD        0x00000100	//DMA transfer size WORD
 #define DMA_TRIPLEBYTE  0x00000180	//DMA transfer size TRIPLEBYTE
 
-#define size8K        0x2000
-#define size16K       0x4000
-#define size32K       0x8000
-#define size64K       0x10000
-#define size128K      0x20000
+#define size4K		0x1000
+#define size8K		0x2000
+#define size16K		0x4000
+#define size32K		0x8000
+#define size64K		0x10000
+#define size128K	0x20000
 
-#define size2MB       0x200000
-#define size4MB       0x400000
-#define size8MB       0x800000
-#define size16MB      0x1000000
+#define size1MB		0x100000
+#define size2MB		0x200000
+#define size4MB		0x400000
+#define size8MB		0x800000
+#define size16MB	0x1000000
 
 #define CMD_TYPE_BSC  0x01
 #define CMD_TYPE_SCS  0x02

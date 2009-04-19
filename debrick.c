@@ -80,23 +80,30 @@ static unsigned int address_register;
 static int USE_DMA = 0;
 static int ejtag_version = 0;
 
+enum cpu_endianness {
+	CPU_LE,
+	CPU_BE,
+};
+
 struct processor_chip {
-	unsigned int chip_id;	// Processor Chip ID
-	int instr_length;	// EJTAG Instruction Length
-	char *chip_descr;	// Processor Chip Description
+	unsigned int chip_id;		/* Processor Chip ID */
+	int instr_length;		/* EJTAG Instruction Length */
+	enum cpu_endianness endian;	/* Bytesex */
+	char *chip_descr;		/* Processor Chip Description */
 };
 
 static const struct processor_chip processor_chip_list[] = {
-	{0x0471017F, 5, "Broadcom BCM4702 Rev 1 CPU"},
-	{0x1471217F, 8, "Broadcom BCM4712 Rev 1 CPU"},
-	{0x2471217F, 8, "Broadcom BCM4712 Rev 2 CPU"},
-	{0x0535017F, 8, "Broadcom BCM5350 Rev 1 CPU"},
-	{0x0535217F, 8, "Broadcom BCM5352 Rev 1 CPU"},
-	{0x2535417F, 8, "Broadcom BCM5354 CPU"},
-	{0x0536517F, 8, "Broadcom BCM5365 Rev 1 CPU"},	// BCM5365 Not Completely Verified Yet
-	{0x0634817F, 5, "Broadcom BCM6348 Rev 1 CPU"},
-	{0x0634517F, 5, "Broadcom BCM6345 Rev 1 CPU"},	// BCM6345 Not Completely Verified Yet
-	{0x0000100F, 5, "TI AR7WRD TNETD7300GDU Rev 1 CPU"},	// TI AR7WRD Only Partially Verified
+	{ 0x0471017F, 5, CPU_LE, "Broadcom BCM4702 Rev 1 CPU" },
+	{ 0x0470417F, 8, CPU_LE, "Broadcom BCM4704 Rev 8 CPU" }, /* used in the WRTSL54GS units */
+	{ 0x1471217F, 8, CPU_LE, "Broadcom BCM4712 Rev 1 CPU" },
+	{ 0x2471217F, 8, CPU_LE, "Broadcom BCM4712 Rev 2 CPU" },
+	{ 0x0535017F, 8, CPU_LE, "Broadcom BCM5350 Rev 1 CPU" },
+	{ 0x0535217F, 8, CPU_LE, "Broadcom BCM5352 Rev 1 CPU" },
+	{ 0x2535417F, 8, CPU_LE, "Broadcom BCM5354 CPU" },
+	{ 0x0536517F, 8, CPU_LE, "Broadcom BCM5365 Rev 1 CPU" },
+	{ 0x0634817F, 5, CPU_BE, "Broadcom BCM6348 Rev 1 CPU" },
+	{ 0x0634517F, 5, CPU_LE, "Broadcom BCM6345 Rev 1 CPU" },
+	{ 0x0000100F, 5, CPU_LE, "TI AR7WRD TNETD7300GDU Rev 1 CPU" },
 	{ 0, } /* End of list */
 };
 
@@ -108,25 +115,29 @@ struct flash_area {
 };
 
 static const struct flash_area flash_area_list[] = {
-	{size2MB, "CFE", 0x1FC00000, 0x40000},
-	{size4MB, "CFE", 0x1FC00000, 0x40000},
-	{size8MB, "CFE", 0x1C000000, 0x40000},
-	{size16MB, "CFE", 0x1C000000, 0x40000},
+	{ size1MB,	"CFE", 0x1FC00000, 0x40000 },
+	{ size2MB,	"CFE", 0x1FC00000, 0x40000 },
+	{ size4MB,	"CFE", 0x1FC00000, 0x40000 },
+	{ size8MB,	"CFE", 0x1C000000, 0x40000 },
+	{ size16MB,	"CFE", 0x1C000000, 0x40000 },
 
-	{size2MB, "KERNEL", 0x1FC40000, 0x1B0000},
-	{size4MB, "KERNEL", 0x1FC40000, 0x3B0000},
-	{size8MB, "KERNEL", 0x1C040000, 0x7A0000},
-	{size16MB, "KERNEL", 0x1C040000, 0x7A0000},
+	{ size1MB,	"KERNEL", 0x1FC40000, 0xB0000 },
+	{ size2MB,	"KERNEL", 0x1FC40000, 0x1B0000 },
+	{ size4MB,	"KERNEL", 0x1FC40000, 0x3B0000 },
+	{ size8MB,	"KERNEL", 0x1C040000, 0x7A0000 },
+	{ size16MB,	"KERNEL", 0x1C040000, 0x7A0000 },
 
-	{size2MB, "NVRAM", 0x1FDF0000, 0x10000},
-	{size4MB, "NVRAM", 0x1FFF0000, 0x10000},
-	{size8MB, "NVRAM", 0x1C7E0000, 0x20000},
-	{size16MB, "NVRAM", 0x1C7E0000, 0x20000},
+	{ size1MB,	"NVRAM", 0x1FCF0000, 0x10000 },
+	{ size2MB,	"NVRAM", 0x1FDF0000, 0x10000 },
+	{ size4MB,	"NVRAM", 0x1FFF0000, 0x10000 },
+	{ size8MB,	"NVRAM", 0x1C7E0000, 0x20000 },
+	{ size16MB,	"NVRAM", 0x1C7E0000, 0x20000 },
 
-	{size2MB, "WHOLEFLASH", 0x1FC00000, 0x200000},
-	{size4MB, "WHOLEFLASH", 0x1FC00000, 0x400000},
-	{size8MB, "WHOLEFLASH", 0x1C000000, 0x800000},
-	{size16MB, "WHOLEFLASH", 0x1C000000, 0x800000},
+	{ size1MB,	"WHOLEFLASH", 0x1FC00000, 0x100000 },
+	{ size2MB,	"WHOLEFLASH", 0x1FC00000, 0x200000 },
+	{ size4MB,	"WHOLEFLASH", 0x1FC00000, 0x400000 },
+	{ size8MB,	"WHOLEFLASH", 0x1C000000, 0x800000 },
+	{ size16MB,	"WHOLEFLASH", 0x1C000000, 0x800000 },
 
 	{ 0, } /* End of list */
 };
@@ -274,6 +285,22 @@ static const struct flash_chip flash_chip_list[] = {
 	 size64K, 8, size8K, 0, 0, 0, 0},
 	{0x00EC, 0x2277, size2MB, CMD_TYPE_AMD, "K8D1716UBC  1Mx16 BotB     (2MB)", 8,
 	 size8K, 31, size64K, 0, 0, 0, 0},
+	{0x00C2, 0x22DA, size1MB, CMD_TYPE_AMD, "MX29LV800BTC 512kx16 TopB  (1MB)", 15,
+	 size32K, 1, size16K, 2, size4K, 1, size8K},
+	{0x00C2, 0x225B, size1MB, CMD_TYPE_AMD, "MX29LV800BTC 512kx16 BotB  (1MB)", 1,
+	 size8K, 2, size4K, 1, size16K, 15, size32K},
+	{0x00EC, 0x22A0, size2MB, CMD_TYPE_AMD, "K8D3216UTC  2Mx16 TopB     (4MB)", 63,
+	 size64K, 8, size8K, 0, 0, 0, 0},
+	{0x00EC, 0x22A2, size2MB, CMD_TYPE_AMD, "K8D3216UBC  2Mx16 BotB     (4MB)", 8,
+	 size8K, 63, size64K, 0, 0, 0, 0},
+	{0x00BF, 0x236D, size4MB, CMD_TYPE_SST, "SST39VF6401B 4Mx16 BotB    (8MB)", 256,
+	 size32K, 0, 0, 0, 0, 0, 0},
+	{0x00BF, 0x236C, size4MB, CMD_TYPE_SST, "SST39VF6402B 4Mx16 TopB    (8MB)", 256,
+	 size32K, 0, 0, 0, 0, 0, 0},
+	{0x1000, 0x0278, size4MB, CMD_TYPE_AMD, "MBM29DL32BF 2Mx16 BotB     (4MB)", 8,
+	 size8K, 7, size64K, 24, size64K, 32, size64K},
+	{0x00c2, 0x227e, size8MB, CMD_TYPE_AMD, "MX29LV640MB 4Mx16 BotB     (8MB)", 8,
+	 size8K, 127, size64K, 0, 0, 0, 0},
 	{0, } /* End of list */
 };
 
