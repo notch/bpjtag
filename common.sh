@@ -22,7 +22,15 @@ if [ -r "user.sh" ]; then
 	. user.sh
 fi
 
-if [ -n "$LOAD_KDEBRICK" ]; then
+if [ -z "$LOAD_KDEBRICK" -o "$LOAD_KDEBRICK" = "0" ]; then
+	if [ -z "$(lsmod | grep ppdev)" ]; then
+		load_module parport
+		load_module parport_pc
+		unload_module kdebrick
+		load_module ppdev
+		sleep 1
+	fi
+else
 	if [ -z "$(lsmod | grep kdebrick)" ]; then
 		load_module parport
 		load_module parport_pc
@@ -32,12 +40,4 @@ if [ -n "$LOAD_KDEBRICK" ]; then
 		sleep 1
 	fi
 	args="$args --kdebrick"
-else
-	if [ -z "$(lsmod | grep ppdev)" ]; then
-		load_module parport
-		load_module parport_pc
-		unload_module kdebrick
-		load_module ppdev
-		sleep 1
-	fi
 fi
