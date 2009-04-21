@@ -24,7 +24,6 @@
  */
 
 #include "kdebrick.h"
-#include "../debrick.h"
 #include "../common/bitbang.h"
 
 #include <linux/module.h>

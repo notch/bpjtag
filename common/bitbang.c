@@ -167,7 +167,7 @@ static int bitbang_ejtag_dma_read(struct debrick_bitbang *b,
 				  unsigned int control, unsigned int addr,
 				  unsigned int *data)
 {
-	int retries = RETRY_ATTEMPTS;
+	unsigned int retries = 16;
 
 begin_ejtag_dma_read:
 
@@ -222,7 +222,7 @@ static int bitbang_ejtag_dma_write(struct debrick_bitbang *b,
 				   unsigned int control, unsigned int addr,
 				   unsigned int data)
 {
-	int retries = RETRY_ATTEMPTS;
+	unsigned int retries = 16;
 
 begin_ejtag_dma_write:
 
