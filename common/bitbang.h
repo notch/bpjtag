@@ -60,7 +60,15 @@ struct debrick_bitbang {
 	int ludicrous_speed_corruption;
 	void *parport_priv;
 
-	int curinstr;
+	/* internal */
+	unsigned int curinstr;
 };
+
+static inline void debrick_bitbang_init(struct debrick_bitbang *b)
+{
+	memset(b, 0, sizeof(*b));
+	b->curinstr = -1;
+}
+
 
 #endif /* DEBRICK_BITBANG_H_ */

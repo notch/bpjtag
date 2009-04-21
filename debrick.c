@@ -1566,6 +1566,7 @@ int main(int argc, char **argv)
 	printf("Broadcom-MIPS EJTAG Debrick Utility\n");
 	printf("===================================\n\n");
 
+	debrick_bitbang_init(&bitbang);
 	run_option = RUN_NOTHING;
 	while (1) {
 		c = getopt_long(argc, argv, "hF:b:e:f:PrmWBEd:w:s:l:SDi:c:p:Lkt:I",

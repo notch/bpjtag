@@ -102,7 +102,7 @@ static void bitbang_test_reset(struct debrick_bitbang *b)
 	bitbang_clockin(b, 0, 0); /* enter runtest-idle */
 }
 
-static void bitbang_set_instr(struct debrick_bitbang *b, int instr)
+static void bitbang_set_instr(struct debrick_bitbang *b, unsigned int instr)
 {
 	int i;
 

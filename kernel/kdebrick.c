@@ -23,9 +23,6 @@
  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-#include "kdebrick.h"
-#include "../common/bitbang.h"
-
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/sched.h>
@@ -40,6 +37,9 @@
 #include <linux/mutex.h>
 #include <linux/compat.h>
 #include <linux/delay.h>
+
+#include "kdebrick.h"
+#include "../common/bitbang.h"
 
 
 #define CHRDEV			"kdebrick"
@@ -294,6 +294,7 @@ static int kdebrick_open(struct inode *inode, struct file *file)
 	if (!d)
 		return -ENOMEM;
 	mutex_init(&d->mutex);
+	debrick_bitbang_init(&d->bitbang);
 
 	/* Defer the actual device registration until the first claim. */
 	d->pdev = NULL;
