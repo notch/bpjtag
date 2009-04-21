@@ -178,13 +178,15 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 		if (err)
 			return err;
 		dma.data = data;
-		if (d->bitbang.ludicrous_speed_corruption)
-			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION;
 
 		if (put_user(dma.data, (u32 __user *)&user_dma->data))
 			return -EFAULT;
-		if (put_user(dma.flags, (u32 __user *)&user_dma->flags))
-			return -EFAULT;
+		if (d->bitbang.ludicrous_speed_corruption) {
+			d->bitbang.ludicrous_speed_corruption = 0;
+			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION;
+			if (put_user(dma.flags, (u32 __user *)&user_dma->flags))
+				return -EFAULT;
+		}
 		break;
 	}
 	case KDEBRICK_IOCTL_DMAWRITE: {
@@ -198,11 +200,12 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 					      dma.addr, dma.data);
 		if (err)
 			return err;
-		if (d->bitbang.ludicrous_speed_corruption)
+		if (d->bitbang.ludicrous_speed_corruption) {
+			d->bitbang.ludicrous_speed_corruption = 0;
 			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION;
-
-		if (put_user(dma.flags, (u32 __user *)&user_dma->flags))
-			return -EFAULT;
+			if (put_user(dma.flags, (u32 __user *)&user_dma->flags))
+				return -EFAULT;
+		}
 		break;
 	}
 	case KDEBRICK_IOCTL_WRITEDATA: {
