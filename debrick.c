@@ -538,8 +538,6 @@ static unsigned int ejtag_dma_read(unsigned int addr)
 		dma.addr = addr;
 		dma.control = DMA_WORD;
 		dma.flags = 0;
-		if (bitbang.use_ludicrous_speed)
-			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
 		if (ioctl(pfd, KDEBRICK_IOCTL_DMAREAD, &dma)) {
 			fprintf(stderr, "kdebrick: dmaread failed\n");
 			exit(1);
@@ -564,8 +562,6 @@ static unsigned int ejtag_dma_read_h(unsigned int addr)
 		dma.addr = addr;
 		dma.control = DMA_HALFWORD;
 		dma.flags = 0;
-		if (bitbang.use_ludicrous_speed)
-			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
 		if (ioctl(pfd, KDEBRICK_IOCTL_DMAREAD, &dma)) {
 			fprintf(stderr, "kdebrick: dmaread failed\n");
 			exit(1);
@@ -589,8 +585,6 @@ static void ejtag_dma_write(unsigned int addr, unsigned int data)
 		dma.data = data;
 		dma.control = DMA_WORD;
 		dma.flags = 0;
-		if (bitbang.use_ludicrous_speed)
-			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
 		if (ioctl(pfd, KDEBRICK_IOCTL_DMAWRITE, &dma)) {
 			fprintf(stderr, "kdebrick: dmawrite failed\n");
 			exit(1);
@@ -612,8 +606,6 @@ static void ejtag_dma_write_h(unsigned int addr, unsigned int data)
 		dma.data = data;
 		dma.control = DMA_HALFWORD;
 		dma.flags = 0;
-		if (bitbang.use_ludicrous_speed)
-			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
 		if (ioctl(pfd, KDEBRICK_IOCTL_DMAWRITE, &dma)) {
 			fprintf(stderr, "kdebrick: dmawrite failed\n");
 			exit(1);
@@ -806,8 +798,11 @@ static void chip_detect(void)
 		}
 		cfg.tck_delay = bitbang.tck_delay;
 		cfg.flags &= ~KDEBRICK_CONF_WIGGLER;
+		cfg.flags &= ~KDEBRICK_CONF_LUDICROUS_SPEED;
 		if (bitbang.use_wiggler)
 			cfg.flags |= KDEBRICK_CONF_WIGGLER;
+		if (bitbang.use_ludicrous_speed)
+			cfg.flags |= KDEBRICK_CONF_LUDICROUS_SPEED;
 		if (ioctl(pfd, KDEBRICK_IOCTL_SETCONFIG, &cfg)) {
 			fprintf(stderr, "kdebrick: setconfig failed\n");
 			exit(1);

@@ -29,8 +29,7 @@
 #define __KDEBRICK_IOCTL	('D'^'e'^'B'^'r'^'I'^'c'^'K')
 
 enum kdebrick_dma_flags {
-	KDEBRICK_DMA_LUDICROUS_SPEED		= (1 << 0),
-	KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION	= (1 << 1),
+	KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION	= (1 << 0),
 };
 
 struct kdebrick_dma {
@@ -42,6 +41,7 @@ struct kdebrick_dma {
 
 enum kdebrick_config_flags {
 	KDEBRICK_CONF_WIGGLER		= (1 << 0),
+	KDEBRICK_CONF_LUDICROUS_SPEED	= (1 << 1),
 };
 
 struct kdebrick_config {

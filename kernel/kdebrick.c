@@ -174,7 +174,6 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 		if (copy_from_user(&dma, user_dma, sizeof(dma)))
 			return -EFAULT;
 
-		d->bitbang.use_ludicrous_speed = !!(dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED);
 		err = bitbang_ejtag_dma_read(&d->bitbang, dma.control,
 					     dma.addr, &data);
 		if (err)
@@ -196,7 +195,6 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 		if (copy_from_user(&dma, user_dma, sizeof(dma)))
 			return -EFAULT;
 
-		d->bitbang.use_ludicrous_speed = !!(dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED);
 		err = bitbang_ejtag_dma_write(&d->bitbang, dma.control,
 					      dma.addr, dma.data);
 		if (err)
@@ -248,6 +246,8 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 		d->bitbang.tck_delay = min(d->config.tck_delay,
 					   (u32)MAX_TCK_DELAY);
 		d->bitbang.use_wiggler = !!(d->config.flags & KDEBRICK_CONF_WIGGLER);
+		d->bitbang.use_ludicrous_speed =
+			!!(d->config.flags & KDEBRICK_CONF_LUDICROUS_SPEED);
 		break;
 	}
 	case KDEBRICK_IOCTL_GETCONFIG: {
