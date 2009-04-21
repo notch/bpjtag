@@ -32,12 +32,14 @@
 
 #include "debrick.h"
 #include "kernel/kdebrick.h"
+#include "common/bitbang.h"
 
+
+static struct debrick_bitbang bitbang;
 
 static int pfd;
 static char parport_path[4096];
 static char inout_filename[4096];
-static int instruction_length;
 static int issue_reset = 1;
 static int issue_enable_mw = 1;
 static int issue_watchdog = 1;
@@ -53,12 +55,8 @@ static int custom_options = 0;
 static int silent_mode = 0;
 static int skipdetect = 0;
 static int instrlen = 0;
-static int ludicrous_speed = 0;
-static int ludicrous_speed_corruption = 0;
 static int no_erase_delays = 0;
 static int use_kdebrick = 0; /* use kernel accelerator? */
-static unsigned int tck_delay = 0;
-static int use_wiggler = 0; /* Use wiggler-type cable? */
 
 static char flash_part[128];
 static unsigned int flash_size = 0;
@@ -311,6 +309,105 @@ static const struct flash_chip flash_chip_list[] = {
 #define min(a, b)	((a) < (b) ? (a) : (b))
 #define max(a, b)	((a) > (b) ? (a) : (b))
 
+static void tdelay(int secs, int nsecs)
+{
+	struct timespec delay;
+
+	delay.tv_sec = secs;
+	delay.tv_nsec = nsecs;
+	nanosleep(&delay, NULL);
+}
+
+static unsigned int tck_delays_per_usec;
+
+static void __attribute__((noinline)) __tck_delay(void)
+{
+	static volatile int i;
+	i = 0; i = 1; i = 2; i = 3; i = 4;
+	i = 5; i = 6; i = 7; i = 8; i = 9;
+}
+
+static uint64_t do_calibrate_tck_delay(unsigned int testloops)
+{
+	unsigned int i;
+	uint64_t nr_usecs;
+	struct timeval start, stop;
+
+	gettimeofday(&start, NULL);
+	for (i = testloops; i; i--)
+		__tck_delay();
+	gettimeofday(&stop, NULL);
+
+	nr_usecs = (stop.tv_sec - start.tv_sec) * 1000 * 1000;
+	if (nr_usecs) {
+		nr_usecs += 1000 * 1000 - start.tv_usec;
+		nr_usecs += stop.tv_usec;
+	} else
+		nr_usecs += stop.tv_usec - start.tv_usec;
+
+	return nr_usecs;
+}
+
+static void calibrate_tck_delay(void)
+{
+	const unsigned int testloops = 10000000;
+	uint64_t a, b, c, d, nr_usecs;
+
+	printf("Calibrating TCK delay loop...  ");
+	fflush(stdout);
+
+	a = do_calibrate_tck_delay(testloops);
+	tdelay(0, 100 * 1000 * 1000);
+	b = do_calibrate_tck_delay(testloops);
+	tdelay(0, 150 * 1000 * 1000);
+	c = do_calibrate_tck_delay(testloops);
+	tdelay(0, 50 * 1000 * 1000);
+	d = do_calibrate_tck_delay(testloops);
+
+	nr_usecs = min(a, min(b, min(c, d)));
+
+	tck_delays_per_usec = testloops / nr_usecs;
+	if (!tck_delays_per_usec)
+		tck_delays_per_usec = 1;
+
+	printf("%u loops per usec\n", tck_delays_per_usec);
+}
+
+static inline void debrick_usec_delay(unsigned int usec)
+{
+	unsigned int i;
+
+	for (i = tck_delays_per_usec * usec; i; i--)
+		__tck_delay();
+}
+
+static inline int debrick_relax(void)
+{
+	return 0; /* Nothing to do */
+}
+
+static inline void debrick_parport_write_data(void *priv, uint8_t data)
+{
+	if (ioctl(pfd, PPWDATA, &data)) {
+		fprintf(stderr, "clockin: parport IOCTL failed.\n");
+		exit(1);
+	}
+}
+
+static inline uint8_t debrick_parport_read_status(void *priv)
+{
+	uint8_t data;
+
+	if (ioctl(pfd, PPRSTATUS, &data)) {
+		fprintf(stderr, "clockin: parport IOCTL failed.\n");
+		exit(1);
+	}
+
+	return data;
+}
+
+#include "common/bitbang.c"
+
 static inline uint32_t cpu_to_le32(uint32_t x)
 {
 	uint8_t ret[4];
@@ -370,131 +467,6 @@ static void lpt_closeport(void)
 	close(pfd);
 }
 
-static void tdelay(int secs, int nsecs)
-{
-	struct timespec delay;
-
-	delay.tv_sec = secs;
-	delay.tv_nsec = nsecs;
-	nanosleep(&delay, NULL);
-}
-
-static unsigned int tck_delays_per_usec;
-
-static void __attribute__((noinline)) __tck_delay(void)
-{
-	static volatile int i;
-	i = 0; i = 1; i = 2; i = 3; i = 4;
-	i = 5; i = 6; i = 7; i = 8; i = 9;
-}
-
-static inline void do_tck_delay(void)
-{
-	unsigned int i;
-
-	if (tck_delay) {
-		for (i = tck_delays_per_usec * tck_delay; i; i--)
-			__tck_delay();
-	}
-}
-
-static uint64_t do_calibrate_tck_delay(unsigned int testloops)
-{
-	unsigned int i;
-	uint64_t nr_usecs;
-	struct timeval start, stop;
-
-	gettimeofday(&start, NULL);
-	for (i = testloops; i; i--)
-		__tck_delay();
-	gettimeofday(&stop, NULL);
-
-	nr_usecs = (stop.tv_sec - start.tv_sec) * 1000 * 1000;
-	if (nr_usecs) {
-		nr_usecs += 1000 * 1000 - start.tv_usec;
-		nr_usecs += stop.tv_usec;
-	} else
-		nr_usecs += stop.tv_usec - start.tv_usec;
-
-	return nr_usecs;
-}
-
-static void calibrate_tck_delay(void)
-{
-	const unsigned int testloops = 10000000;
-	uint64_t a, b, c, d, nr_usecs;
-
-	printf("Calibrating TCK delay loop...  ");
-	fflush(stdout);
-
-	a = do_calibrate_tck_delay(testloops);
-	tdelay(0, 100 * 1000 * 1000);
-	b = do_calibrate_tck_delay(testloops);
-	tdelay(0, 150 * 1000 * 1000);
-	c = do_calibrate_tck_delay(testloops);
-	tdelay(0, 50 * 1000 * 1000);
-	d = do_calibrate_tck_delay(testloops);
-
-	nr_usecs = min(a, min(b, min(c, d)));
-
-	tck_delays_per_usec = testloops / nr_usecs;
-	if (!tck_delays_per_usec)
-		tck_delays_per_usec = 1;
-
-	printf("%u loops per usec\n", tck_delays_per_usec);
-}
-
-static inline void clockin(int tms, int tdi)
-{
-	unsigned char data;
-	int err;
-
-	tms = tms ? 1 : 0;
-	tdi = tdi ? 1 : 0;
-
-	if (use_wiggler)
-		data = (0 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 << WTRST_N);
-	else
-		data = (0 << TCK) | (tms << TMS) | (tdi << TDI);
-	err = ioctl(pfd, PPWDATA, &data);
-	if (err) {
-		fprintf(stderr, "clockin: parport IOCTL failed.\n");
-		exit(1);
-	}
-	do_tck_delay();
-
-	if (use_wiggler)
-		data = (1 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 << WTRST_N);
-	else
-		data = (1 << TCK) | (tms << TMS) | (tdi << TDI);
-	err = ioctl(pfd, PPWDATA, &data);
-	if (err) {
-		fprintf(stderr, "clockin: parport IOCTL failed.\n");
-		exit(1);
-	}
-	do_tck_delay();
-}
-
-static inline unsigned char clockin_tdo(int tms, int tdi)
-{
-	unsigned char data;
-	int err;
-
-	clockin(tms, tdi);
-	err = ioctl(pfd, PPRSTATUS, &data);
-	if (err) {
-		fprintf(stderr, "clockin: parport IOCTL failed.\n");
-		exit(1);
-	}
-	if (use_wiggler) {
-		data ^= (1 << WTDO);
-		data = !!(data & (1 << WTDO));
-	} else
-		data = !!(data & (1 << TDO));
-
-	return data;
-}
-
 static void test_reset(void)
 {
 	if (use_kdebrick) {
@@ -504,20 +476,11 @@ static void test_reset(void)
 		}
 		return;
 	}
-
-	clockin(1, 0);		// Run through a handful of clock cycles with TMS high to make sure
-	clockin(1, 0);		// we are in the TEST-LOGIC-RESET state.
-	clockin(1, 0);
-	clockin(1, 0);
-	clockin(1, 0);
-	clockin(0, 0);		// enter runtest-idle
+	bitbang_test_reset(&bitbang);
 }
 
 static void set_instr(int instr)
 {
-	int i;
-	static int curinstr = 0xFFFFFFFF;
-
 	if (use_kdebrick) {
 		if (ioctl(pfd, KDEBRICK_IOCTL_SETINSTR, &instr)) {
 			fprintf(stderr, "kdebrick: set_instr failed\n");
@@ -525,26 +488,11 @@ static void set_instr(int instr)
 		}
 		return;
 	}
-	if (instr == curinstr)
-		return;
-	curinstr = instr;
-
-	clockin(1, 0);		/* enter select-dr-scan */
-	clockin(1, 0);		/* enter select-ir-scan */
-	clockin(0, 0);		/* enter capture-ir */
-	clockin(0, 0);		/* enter shift-ir (dummy) */
-	for (i = 0; i < instruction_length; i++)
-		clockin(i == (instruction_length - 1), (instr >> i) & 1);
-	clockin(1, 0);		/* enter update-ir */
-	clockin(0, 0);		/* enter runtest-idle */
+	bitbang_set_instr(&bitbang, instr);
 }
 
 static unsigned int ReadWriteData(unsigned int in_data)
 {
-	int i;
-	unsigned int out_data = 0;
-	unsigned char out_bit;
-
 	if (use_kdebrick) {
 		if (ioctl(pfd, KDEBRICK_IOCTL_RWDATA, &in_data)) {
 			fprintf(stderr, "kdebrick: rwdata failed\n");
@@ -552,18 +500,7 @@ static unsigned int ReadWriteData(unsigned int in_data)
 		}
 		return in_data;
 	}
-
-	clockin(1, 0);		/* enter select-dr-scan */
-	clockin(0, 0);		/* enter capture-dr */
-	clockin(0, 0);		/* enter shift-dr */
-	for (i = 0; i < 32; i++) {
-		out_bit = clockin_tdo((i == 31), ((in_data >> i) & 1));
-		out_data = out_data | (out_bit << i);
-	}
-	clockin(1, 0);		/* enter update-dr */
-	clockin(0, 0);		/* enter runtest-idle */
-
-	return out_data;
+	return bitbang_rwdata(&bitbang, in_data);
 }
 
 static inline unsigned int ReadData(void)
@@ -573,8 +510,6 @@ static inline unsigned int ReadData(void)
 
 static void WriteData(unsigned int in_data)
 {
-	int i;
-
 	if (use_kdebrick) {
 		if (ioctl(pfd, KDEBRICK_IOCTL_WRITEDATA, &in_data)) {
 			fprintf(stderr, "kdebrick: writedata failed\n");
@@ -582,14 +517,7 @@ static void WriteData(unsigned int in_data)
 		}
 		return;
 	}
-
-	clockin(1, 0);		/* enter select-dr-scan */
-	clockin(0, 0);		/* enter capture-dr */
-	clockin(0, 0);		/* enter shift-dr */
-	for (i = 0; i < 32; i++)
-		clockin((i == 31), ((in_data >> i) & 1));
-	clockin(1, 0);		/* enter update-dr */
-	clockin(0, 0);		/* enter runtest-idle */
+	bitbang_wdata(&bitbang, in_data);
 }
 
 static void ShowData(unsigned int value)
@@ -600,68 +528,30 @@ static void ShowData(unsigned int value)
 	printf(" (%08X)\n", value);
 }
 
-static inline unsigned int __ejtag_dma_read(unsigned int addr, unsigned int wordctl)
-{
-	unsigned int data;
-	int retries = RETRY_ATTEMPTS;
-
-begin_ejtag_dma_read:
-
-	// Setup Address
-	set_instr(INSTR_ADDRESS);
-	WriteData(addr);
-
-	// Initiate DMA Read & set DSTRT
-	set_instr(INSTR_CONTROL);
-	WriteData(DMAACC | DRWN | wordctl | DSTRT | PROBEN | PRACC);
-
-	if (!ludicrous_speed) {
-		// Wait for DSTRT to Clear
-		while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT)
-			ludicrous_speed_corruption = 1;
-	}
-
-	// Read Data
-	set_instr(INSTR_DATA);
-	data = ReadData();
-
-	if (!ludicrous_speed) {
-		// Clear DMA & Check DERR
-		set_instr(INSTR_CONTROL);
-		if (ReadWriteData(PROBEN | PRACC) & DERR) {
-			ludicrous_speed_corruption = 1;
-			if (retries--)
-				goto begin_ejtag_dma_read;
-			else
-				printf("DMA Read Addr = %08x  Data = (%08x)ERROR ON READ\n",
-				       addr, data);
-		}
-	}
-
-	return data;
-}
-
 static unsigned int ejtag_dma_read(unsigned int addr)
 {
+	unsigned int data;
+
 	if (use_kdebrick) {
 		struct kdebrick_dma dma;
 
 		dma.addr = addr;
 		dma.control = DMA_WORD;
 		dma.flags = 0;
-		if (ludicrous_speed)
+		if (bitbang.use_ludicrous_speed)
 			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
 		if (ioctl(pfd, KDEBRICK_IOCTL_DMAREAD, &dma)) {
 			fprintf(stderr, "kdebrick: dmaread failed\n");
 			exit(1);
 		}
 		if (dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION)
-			ludicrous_speed_corruption = 1;
+			bitbang.ludicrous_speed_corruption = 1;
 
 		return dma.data;
 	}
+	bitbang_ejtag_dma_read(&bitbang, DMA_WORD, addr, &data);
 
-	return __ejtag_dma_read(addr, DMA_WORD);
+	return data;
 }
 
 static unsigned int ejtag_dma_read_h(unsigned int addr)
@@ -674,62 +564,20 @@ static unsigned int ejtag_dma_read_h(unsigned int addr)
 		dma.addr = addr;
 		dma.control = DMA_HALFWORD;
 		dma.flags = 0;
-		if (ludicrous_speed)
+		if (bitbang.use_ludicrous_speed)
 			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
 		if (ioctl(pfd, KDEBRICK_IOCTL_DMAREAD, &dma)) {
 			fprintf(stderr, "kdebrick: dmaread failed\n");
 			exit(1);
 		}
 		if (dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION)
-			ludicrous_speed_corruption = 1;
+			bitbang.ludicrous_speed_corruption = 1;
 
 		return dma.data;
 	}
-
-	data = __ejtag_dma_read(addr, DMA_HALFWORD);
-	// Handle the bigendian/littleendian
-	if (addr & 0x2)
-		data = (data >> 16) & 0xffff;
-	else
-		data = (data & 0x0000ffff);
+	bitbang_ejtag_dma_read(&bitbang, DMA_HALFWORD, addr, &data);
 
 	return data;
-}
-
-static inline void __ejtag_dma_write(unsigned int addr, unsigned int wordctl,
-				     unsigned int data)
-{
-	int retries = RETRY_ATTEMPTS;
-
-begin_ejtag_dma_write:
-
-	// Setup Address
-	set_instr(INSTR_ADDRESS);
-	WriteData(addr);
-
-	// Setup Data
-	set_instr(INSTR_DATA);
-	WriteData(data);
-
-	// Initiate DMA Write & set DSTRT
-	set_instr(INSTR_CONTROL);
-	WriteData(DMAACC | wordctl | DSTRT | PROBEN | PRACC);
-
-	if (!ludicrous_speed) {
-		// Wait for DSTRT to Clear
-		while (ReadWriteData(DMAACC | PROBEN | PRACC) & DSTRT)
-			ludicrous_speed_corruption = 1;
-
-		// Clear DMA & Check DERR
-		set_instr(INSTR_CONTROL);
-		if (ReadWriteData(PROBEN | PRACC) & DERR) {
-			ludicrous_speed_corruption = 1;
-			if (retries--)
-				goto begin_ejtag_dma_write;
-			else
-				printf("DMA Write Addr = %08x  Data = ERROR ON WRITE\n", addr);
-		}
-	}
 }
 
 static void ejtag_dma_write(unsigned int addr, unsigned int data)
@@ -741,19 +589,18 @@ static void ejtag_dma_write(unsigned int addr, unsigned int data)
 		dma.data = data;
 		dma.control = DMA_WORD;
 		dma.flags = 0;
-		if (ludicrous_speed)
+		if (bitbang.use_ludicrous_speed)
 			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
 		if (ioctl(pfd, KDEBRICK_IOCTL_DMAWRITE, &dma)) {
 			fprintf(stderr, "kdebrick: dmawrite failed\n");
 			exit(1);
 		}
 		if (dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION)
-			ludicrous_speed_corruption = 1;
+			bitbang.ludicrous_speed_corruption = 1;
 
 		return;
 	}
-
-	__ejtag_dma_write(addr, DMA_WORD, data);
+	bitbang_ejtag_dma_write(&bitbang, DMA_WORD, addr, data);
 }
 
 static void ejtag_dma_write_h(unsigned int addr, unsigned int data)
@@ -765,19 +612,18 @@ static void ejtag_dma_write_h(unsigned int addr, unsigned int data)
 		dma.data = data;
 		dma.control = DMA_HALFWORD;
 		dma.flags = 0;
-		if (ludicrous_speed)
+		if (bitbang.use_ludicrous_speed)
 			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED;
 		if (ioctl(pfd, KDEBRICK_IOCTL_DMAWRITE, &dma)) {
 			fprintf(stderr, "kdebrick: dmawrite failed\n");
 			exit(1);
 		}
 		if (dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION)
-			ludicrous_speed_corruption = 1;
+			bitbang.ludicrous_speed_corruption = 1;
 
 		return;
 	}
-
-	__ejtag_dma_write(addr, DMA_HALFWORD, data);
+	bitbang_ejtag_dma_write(&bitbang, DMA_HALFWORD, addr, data);
 }
 
 static void ExecuteDebugModule(const unsigned int *pmodule)
@@ -958,19 +804,19 @@ static void chip_detect(void)
 			fprintf(stderr, "kdebrick: getconfig failed\n");
 			exit(1);
 		}
-		cfg.tck_delay = tck_delay;
+		cfg.tck_delay = bitbang.tck_delay;
 		cfg.flags &= ~KDEBRICK_CONF_WIGGLER;
-		if (use_wiggler)
+		if (bitbang.use_wiggler)
 			cfg.flags |= KDEBRICK_CONF_WIGGLER;
 		if (ioctl(pfd, KDEBRICK_IOCTL_SETCONFIG, &cfg)) {
 			fprintf(stderr, "kdebrick: setconfig failed\n");
 			exit(1);
 		}
 	}
-	if (tck_delay) {
+	if (bitbang.tck_delay) {
 		if (!use_kdebrick)
 			calibrate_tck_delay();
-		printf("Set TCK-delay to: %u\n", tck_delay);
+		printf("Set TCK-delay to: %u\n", bitbang.tck_delay);
 	} else
 		printf("Set TCK-delay to: disabled\n");
 
@@ -979,7 +825,7 @@ static void chip_detect(void)
 	if (skipdetect) {
 		// Manual Override CPU Chip ID
 		test_reset();
-		instruction_length = instrlen;
+		bitbang.instruction_length = instrlen;
 		if (use_kdebrick) {
 			struct kdebrick_config cfg;
 
@@ -987,7 +833,7 @@ static void chip_detect(void)
 				fprintf(stderr, "kdebrick: getconfig failed\n");
 				exit(1);
 			}
-			cfg.instruction_length = instruction_length;
+			cfg.instruction_length = bitbang.instruction_length;
 			if (ioctl(pfd, KDEBRICK_IOCTL_SETCONFIG, &cfg)) {
 				fprintf(stderr, "kdebrick: setconfig failed\n");
 				exit(1);
@@ -996,7 +842,7 @@ static void chip_detect(void)
 		set_instr(INSTR_IDCODE);
 		id = ReadData();
 		printf("Done\n\n");
-		printf("Instruction Length set to %d\n\n", instruction_length);
+		printf("Instruction Length set to %d\n\n", bitbang.instruction_length);
 		printf("CPU Chip ID: ");
 		ShowData(id);
 		printf("*** CHIP DETECTION OVERRIDDEN ***\n\n");
@@ -1006,9 +852,9 @@ static void chip_detect(void)
 		while (processor_chip->chip_id) {
 			test_reset();
 			if (instrlen)
-				instruction_length = instrlen;
+				bitbang.instruction_length = instrlen;
 			else
-				instruction_length = processor_chip->instr_length;
+				bitbang.instruction_length = processor_chip->instr_length;
 			if (use_kdebrick) {
 				struct kdebrick_config cfg;
 
@@ -1016,7 +862,7 @@ static void chip_detect(void)
 					fprintf(stderr, "kdebrick: getconfig failed\n");
 					exit(1);
 				}
-				cfg.instruction_length = instruction_length;
+				cfg.instruction_length = bitbang.instruction_length;
 				if (ioctl(pfd, KDEBRICK_IOCTL_SETCONFIG, &cfg)) {
 					fprintf(stderr, "kdebrick: setconfig failed\n");
 					exit(1);
@@ -1027,7 +873,7 @@ static void chip_detect(void)
 			if (id == processor_chip->chip_id) {
 				printf("Done\n\n");
 				printf("Instruction Length set to %d\n\n",
-				       instruction_length);
+				       bitbang.instruction_length);
 				printf("CPU Chip ID: ");
 				ShowData(id);
 				printf("*** Found a %s chip ***\n\n",
@@ -1039,7 +885,7 @@ static void chip_detect(void)
 	}
 
 	printf("Done\n\n");
-	printf("Instruction Length set to %d\n\n", instruction_length);
+	printf("Instruction Length set to %d\n\n", bitbang.instruction_length);
 	printf("CPU Chip ID: ");
 	ShowData(id);
 	printf("*** Unknown or NO CPU Chip ID Detected ***\n\n");
@@ -1838,7 +1684,7 @@ int main(int argc, char **argv)
 			strncpy(parport_path, optarg, sizeof(parport_path) - 1);
 			break;
 		case 'L': /* ludicrous-speed */
-			ludicrous_speed = 1;
+			bitbang.use_ludicrous_speed = 1;
 			break;
 		case 'R': /* --noerasedelays */
 			no_erase_delays = 1;
@@ -1847,10 +1693,10 @@ int main(int argc, char **argv)
 			use_kdebrick = 1;
 			break;
 		case 't': /* --tckdelay */
-			tck_delay = strtoul(optarg, NULL, 10);
+			bitbang.tck_delay = strtoul(optarg, NULL, 10);
 			break;
 		case 'I': /* --wiggler */
-			use_wiggler = 1;
+			bitbang.use_wiggler = 1;
 			break;
 		default:
 			fprintf(stderr, "Unknown argument\n");
@@ -1968,8 +1814,8 @@ int main(int argc, char **argv)
 			run_flash(inout_filename, AREA_START, AREA_LENGTH);
 	}
 
-	if (!ludicrous_speed && (run_option == RUN_BACKUP || run_option == RUN_FLASH)) {
-		if (ludicrous_speed_corruption) {
+	if (!bitbang.use_ludicrous_speed && (run_option == RUN_BACKUP || run_option == RUN_FLASH)) {
+		if (bitbang.ludicrous_speed_corruption) {
 			printf("\nInfo: Usage of --ludicrous-speed would have corrupted data\n"
 			       "in this run. Luckily you did not use it. :)\n");
 		} else {

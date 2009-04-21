@@ -3,6 +3,7 @@
  *  Accelerator kernel module
  *
  *  Copyright (C) 2009 Michael Buesch <mb@bu3sch.de>
+ *  Copyright (C) 2004 HairyDairyMaid (a.k.a. Lightbulb)
  *
  *  Derived from the Linux "ppdev" driver
  *  Copyright (C) 1998-2000, 2002 Tim Waugh <tim@cyberelk.net>
@@ -24,6 +25,7 @@
 
 #include "kdebrick.h"
 #include "../debrick.h"
+#include "../common/bitbang.h"
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -41,230 +43,46 @@
 #include <linux/delay.h>
 
 
-#define CHRDEV		"kdebrick"
-#define MAX_TCK_DELAY	1000
+#define CHRDEV			"kdebrick"
+#define MAX_TCK_DELAY		1000
+#define MAX_INSTR_LENGTH	32
 
 
 struct kdebrick {
 	struct mutex mutex;
 	struct pardevice *pdev;
 	bool claimed;
-	unsigned int curinstr;
 	struct kdebrick_config config;
+	struct debrick_bitbang bitbang;
 };
 
 
-static inline void tck_delay(struct kdebrick *d)
+static inline void debrick_usec_delay(unsigned int usec)
 {
-	if (d->config.tck_delay)
-		udelay(d->config.tck_delay);
+	udelay(usec);
 }
 
-static inline void clockin(struct kdebrick *d, int tms, int tdi)
+static inline int debrick_relax(void)
 {
-	unsigned char data;
-
-	tms = tms ? 1 : 0;
-	tdi = tdi ? 1 : 0;
-
-	if (d->config.flags & KDEBRICK_CONF_WIGGLER)
-		data = (0 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 << WTRST_N);
-	else
-		data = (0 << TCK) | (tms << TMS) | (tdi << TDI);
-	parport_write_data(d->pdev->port, data);
-	tck_delay(d);
-
-	if (d->config.flags & KDEBRICK_CONF_WIGGLER)
-		data = (1 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 << WTRST_N);
-	else
-		data = (1 << TCK) | (tms << TMS) | (tdi << TDI);
-	parport_write_data(d->pdev->port, data);
-	tck_delay(d);
-}
-
-static inline unsigned char clockin_tdo(struct kdebrick *d, int tms, int tdi)
-{
-	unsigned char data;
-
-	clockin(d, tms, tdi);
-	data = parport_read_status(d->pdev->port);
-	if (d->config.flags & KDEBRICK_CONF_WIGGLER) {
-		data ^= (1 << WTDO);
-		data = !!(data & (1 << WTDO));
-	} else
-		data = !!(data & (1 << TDO));
-
-	return data;
-}
-
-static void test_reset(struct kdebrick *d)
-{
-	clockin(d, 1, 0); /* Run through a handful of clock cycles with TMS high to make sure */
-	clockin(d, 1, 0); /* we are in the TEST-LOGIC-RESET state. */
-	clockin(d, 1, 0);
-	clockin(d, 1, 0);
-	clockin(d, 1, 0);
-	clockin(d, 0, 0); /* enter runtest-idle */
-}
-
-static void set_instr(struct kdebrick *d, int instr)
-{
-	int i;
-
-	if (instr == d->curinstr)
-		return;
-	d->curinstr = instr;
-
-	clockin(d, 1, 0);		/* enter select-dr-scan */
-	clockin(d, 1, 0);		/* enter select-ir-scan */
-	clockin(d, 0, 0);		/* enter capture-ir */
-	clockin(d, 0, 0);		/* enter shift-ir (dummy) */
-	for (i = 0; i < d->config.instruction_length; i++)
-		clockin(d, i == (d->config.instruction_length - 1), (instr >> i) & 1);
-	clockin(d, 1, 0);		/* enter update-ir */
-	clockin(d, 0, 0);		/* enter runtest-idle */
-
 	cond_resched();
+	return signal_pending(current);
 }
 
-static unsigned int ReadWriteData(struct kdebrick *d, unsigned int in_data)
+static inline void debrick_parport_write_data(void *priv, uint8_t data)
 {
-	int i;
-	unsigned int out_data = 0;
-	unsigned char out_bit;
+	struct pardevice *pdev = priv;
 
-	clockin(d, 1, 0);		/* enter select-dr-scan */
-	clockin(d, 0, 0);		/* enter capture-dr */
-	clockin(d, 0, 0);		/* enter shift-dr */
-	for (i = 0; i < 32; i++) {
-		out_bit = clockin_tdo(d, (i == 31), ((in_data >> i) & 1));
-		out_data = out_data | (out_bit << i);
-	}
-	clockin(d, 1, 0);		/* enter update-dr */
-	clockin(d, 0, 0);		/* enter runtest-idle */
-
-	cond_resched();
-
-	return out_data;
+	parport_write_data(pdev->port, data);
 }
 
-static inline unsigned int ReadData(struct kdebrick *d)
+static inline uint8_t debrick_parport_read_status(void *priv)
 {
-	return ReadWriteData(d, 0);
+	struct pardevice *pdev = priv;
+
+	return parport_read_status(pdev->port);
 }
 
-static void WriteData(struct kdebrick *d, unsigned int in_data)
-{
-	int i;
-
-	clockin(d, 1, 0);		/* enter select-dr-scan */
-	clockin(d, 0, 0);		/* enter capture-dr */
-	clockin(d, 0, 0);		/* enter shift-dr */
-	for (i = 0; i < 32; i++)
-		clockin(d, (i == 31), ((in_data >> i) & 1));
-	clockin(d, 1, 0);		/* enter update-dr */
-	clockin(d, 0, 0);		/* enter runtest-idle */
-
-	cond_resched();
-}
-
-static int ejtag_dma_read(struct kdebrick *d, struct kdebrick_dma *dma)
-{
-	int retries = RETRY_ATTEMPTS;
-
-begin_ejtag_dma_read:
-
-	// Setup Address
-	set_instr(d, INSTR_ADDRESS);
-	WriteData(d, dma->addr);
-
-	// Initiate DMA Read & set DSTRT
-	set_instr(d, INSTR_CONTROL);
-	WriteData(d, DMAACC | DRWN | dma->control | DSTRT | PROBEN | PRACC);
-
-	if (!(dma->flags & KDEBRICK_DMA_LUDICROUS_SPEED)) {
-		// Wait for DSTRT to Clear
-		while (ReadWriteData(d, DMAACC | PROBEN | PRACC) & DSTRT) {
-			dma->flags |= KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION;
-			cond_resched();
-			if (signal_pending(current))
-				return -EINTR;
-		}
-	}
-
-	// Read Data
-	set_instr(d, INSTR_DATA);
-	dma->data = ReadData(d);
-
-	if (!(dma->flags & KDEBRICK_DMA_LUDICROUS_SPEED)) {
-		// Clear DMA & Check DERR
-		set_instr(d, INSTR_CONTROL);
-		if (ReadWriteData(d, PROBEN | PRACC) & DERR) {
-			dma->flags |= KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION;
-			if (retries--) {
-				goto begin_ejtag_dma_read;
-			} else {
-				printk("kdebrick: DMA Read Addr = %08x  Data = (%08x)ERROR ON READ\n",
-				       dma->addr, dma->data);
-				return -EIO;
-			}
-		}
-	}
-
-	if ((dma->control & DMA_HALFWORD) && !(dma->control & DMA_WORD)) {
-		/* Handle the bigendian/littleendian */
-		if (dma->addr & 0x2)
-			dma->data = (dma->data >> 16) & 0xffff;
-		else
-			dma->data = (dma->data & 0x0000ffff);
-	}
-
-	return 0;
-}
-
-static int ejtag_dma_write(struct kdebrick *d, struct kdebrick_dma *dma)
-{
-	int retries = RETRY_ATTEMPTS;
-
-begin_ejtag_dma_write:
-
-	// Setup Address
-	set_instr(d, INSTR_ADDRESS);
-	WriteData(d, dma->addr);
-
-	// Setup Data
-	set_instr(d, INSTR_DATA);
-	WriteData(d, dma->data);
-
-	// Initiate DMA Write & set DSTRT
-	set_instr(d, INSTR_CONTROL);
-	WriteData(d, DMAACC | dma->control | DSTRT | PROBEN | PRACC);
-
-	if (!(dma->flags & KDEBRICK_DMA_LUDICROUS_SPEED)) {
-		// Wait for DSTRT to Clear
-		while (ReadWriteData(d, DMAACC | PROBEN | PRACC) & DSTRT) {
-			dma->flags |= KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION;
-			cond_resched();
-			if (signal_pending(current))
-				return -EINTR;
-		}
-
-		// Clear DMA & Check DERR
-		set_instr(d, INSTR_CONTROL);
-		if (ReadWriteData(d, PROBEN | PRACC) & DERR) {
-			dma->flags |= KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION;
-			if (retries--) {
-				goto begin_ejtag_dma_write;
-			} else {
-				printk("kdebrick: DMA Write Addr = %08x  Data = ERROR ON WRITE\n",
-				       dma->addr);
-				return -EIO;
-			}
-		}
-	}
-
-	return 0;
-}
+#include "../common/bitbang.c"
 
 static void pp_irq(void *private)
 {
@@ -326,6 +144,7 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 				return err;
 			}
 		}
+		d->bitbang.parport_priv = d->pdev;
 
 		err = parport_claim_or_block(d->pdev);
 		if (err < 0)
@@ -350,12 +169,20 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 	case KDEBRICK_IOCTL_DMAREAD: {
 		struct kdebrick_dma dma;
 		struct kdebrick_dma __user *user_dma = argp;
+		unsigned int data;
 
 		if (copy_from_user(&dma, user_dma, sizeof(dma)))
 			return -EFAULT;
-		err = ejtag_dma_read(d, &dma);
+
+		d->bitbang.use_ludicrous_speed = !!(dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED);
+		err = bitbang_ejtag_dma_read(&d->bitbang, dma.control,
+					     dma.addr, &data);
 		if (err)
 			return err;
+		dma.data = data;
+		if (d->bitbang.ludicrous_speed_corruption)
+			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION;
+
 		if (put_user(dma.data, (u32 __user *)&user_dma->data))
 			return -EFAULT;
 		if (put_user(dma.flags, (u32 __user *)&user_dma->flags))
@@ -368,9 +195,15 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 
 		if (copy_from_user(&dma, user_dma, sizeof(dma)))
 			return -EFAULT;
-		err = ejtag_dma_write(d, &dma);
+
+		d->bitbang.use_ludicrous_speed = !!(dma.flags & KDEBRICK_DMA_LUDICROUS_SPEED);
+		err = bitbang_ejtag_dma_write(&d->bitbang, dma.control,
+					      dma.addr, dma.data);
 		if (err)
 			return err;
+		if (d->bitbang.ludicrous_speed_corruption)
+			dma.flags |= KDEBRICK_DMA_LUDICROUS_SPEED_CORRUPTION;
+
 		if (put_user(dma.flags, (u32 __user *)&user_dma->flags))
 			return -EFAULT;
 		break;
@@ -380,7 +213,7 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 
 		if (get_user(data, (u32 __user *)argp))
 			return -EFAULT;
-		WriteData(d, data);
+		bitbang_wdata(&d->bitbang, data);
 		break;
 	}
 	case KDEBRICK_IOCTL_RWDATA: {
@@ -388,7 +221,7 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 
 		if (get_user(data, (u32 __user *)argp))
 			return -EFAULT;
-		data = ReadWriteData(d, data);
+		data = bitbang_rwdata(&d->bitbang, data);
 		if (put_user(data, (u32 __user *)argp))
 			return -EFAULT;
 		break;
@@ -398,17 +231,23 @@ static int kdebrick_do_ioctl(struct file *file, unsigned int cmd, unsigned long 
 
 		if (get_user(instr, (u32 __user *)argp))
 			return -EFAULT;
-		set_instr(d, instr);
+		bitbang_set_instr(&d->bitbang, instr);
 		break;
 	}
 	case KDEBRICK_IOCTL_TESTRESET: {
-		test_reset(d);
+		bitbang_test_reset(&d->bitbang);
 		break;
 	}
 	case KDEBRICK_IOCTL_SETCONFIG: {
 		if (copy_from_user(&d->config, argp, sizeof(d->config)))
 			return -EFAULT;
 		d->config.tck_delay = min(d->config.tck_delay, (u32)MAX_TCK_DELAY);
+
+		d->bitbang.instruction_length = min(d->config.instruction_length,
+						    (u32)MAX_INSTR_LENGTH);
+		d->bitbang.tck_delay = min(d->config.tck_delay,
+					   (u32)MAX_TCK_DELAY);
+		d->bitbang.use_wiggler = !!(d->config.flags & KDEBRICK_CONF_WIGGLER);
 		break;
 	}
 	case KDEBRICK_IOCTL_GETCONFIG: {
@@ -453,7 +292,6 @@ static int kdebrick_open(struct inode *inode, struct file *file)
 	if (!d)
 		return -ENOMEM;
 	mutex_init(&d->mutex);
-	d->curinstr = -1;
 
 	/* Defer the actual device registration until the first claim. */
 	d->pdev = NULL;

@@ -6,7 +6,7 @@ OBJS = debrick.o
 
 all: $(BIN)
 
-debrick.o: debrick.h
+debrick.o: debrick.h common/bitbang.c common/bitbang.h
 
 $(BIN): $(OBJS)
 	gcc $(CFLAGS) -o $@ $(OBJS)
