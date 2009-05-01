@@ -309,6 +309,10 @@ static const struct flash_chip flash_chip_list[] = {
 #define min(a, b)	((a) < (b) ? (a) : (b))
 #define max(a, b)	((a) > (b) ? (a) : (b))
 
+#define ALIGN(x,a)		__ALIGN_MASK(x,(__typeof__(x))(a)-1)
+#define __ALIGN_MASK(x,mask)	(((x)+(mask))&~(mask))
+
+
 static void tdelay(int secs, int nsecs)
 {
 	struct timespec delay;
@@ -941,6 +945,8 @@ static void run_backup(char *filename, unsigned int start, unsigned int length)
 	int percent_complete = 0;
 	time_t start_time = time(0);
 	time_t end_time, elapsed_seconds;
+	char *buffer;
+	uint32_t *bufptr;
 
 	printf("*** You Selected to Backup the %s ***\n\n", AREA_NAME);
 
@@ -949,33 +955,55 @@ static void run_backup(char *filename, unsigned int start, unsigned int length)
 		fprintf(stderr, "Could not open %s for writing\n", filename);
 		exit(1);
 	}
+	buffer = malloc(ALIGN(length, 4));
+	if (!buffer) {
+		fprintf(stderr, "Out of memory\n");
+		fclose(fd);
+		exit(1);
+	}
 
 	printf("=========================\n");
 	printf("Backup Routine Started\n");
 	printf("=========================\n");
 
 	printf("\nSaving %s to Disk...\n", AREA_NAME);
+	bufptr = (uint32_t *)buffer;
 	for (addr = start; addr < (start + length); addr += 4) {
+		int flush_stdout = 0;
+
 		counter += 4;
 		percent_complete = (counter * 100 / length);
 		if (!silent_mode) {
-			if ((addr & 0xF) == 0)
+			if ((addr & 0xF) == 0) {
 				printf("[%3d%% Backed Up]   %08x: ", percent_complete, addr);
+				flush_stdout = 1;
+			}
 		}
 
 		data = ejtag_read(addr);
+		*bufptr++ = cpu_to_le32(data);
 
 		if (silent_mode) {
-			if ((counter & 0x3FF) == 0)
+			if ((counter & 0x3FF) == 0) {
 				printf("%4d%%   bytes = %d\r", percent_complete, counter);
-		} else
+				flush_stdout = 1;
+			}
+		} else {
 			printf("%08x%c", data, (addr & 0xF) == 0xC ? '\n' : ' ');
-
-		data = cpu_to_le32(data);
-		fwrite((unsigned char *)&data, 1, sizeof(data), fd);
-		fflush(stdout);
+			flush_stdout = 1;
+		}
+		if (flush_stdout)
+			fflush(stdout);
+	}
+	if (fwrite(buffer, length, 1, fd) != 1) {
+		fprintf(stderr, "Failed to write to file %s: %s\n",
+			filename, strerror(errno));
+		fclose(fd);
+		free(buffer);
+		exit(1);
 	}
 	fclose(fd);
+	free(buffer);
 
 	printf("Done  (%s saved to Disk OK)\n\n", AREA_NAME);
 
@@ -1183,6 +1211,8 @@ static void run_flash(char *filename, unsigned int start, unsigned int length)
 	int percent_complete = 0;
 	time_t start_time = time(0);
 	time_t end_time, elapsed_seconds;
+	char *buffer;
+	uint32_t *bufptr;
 
 	printf("*** You Selected to Flash the %s ***\n\n", filename);
 
@@ -1191,6 +1221,20 @@ static void run_flash(char *filename, unsigned int start, unsigned int length)
 		fprintf(stderr, "Could not open %s for reading\n", filename);
 		exit(1);
 	}
+	buffer = malloc(ALIGN(length, 4));
+	if (!buffer) {
+		fprintf(stderr, "Out of memory\n");
+		fclose(fd);
+		exit(1);
+	}
+	memset(buffer, 0xFF, ALIGN(length, 4));
+	if (fread(buffer, length, 1, fd) != 1) {
+		fprintf(stderr, "Could not read file %s: %s\n",
+			filename, strerror(errno));
+		fclose(fd);
+		free(buffer);
+	}
+	fclose(fd);
 
 	printf("=========================\n");
 	printf("Flashing Routine Started\n");
@@ -1200,29 +1244,36 @@ static void run_flash(char *filename, unsigned int start, unsigned int length)
 		sflash_erase_area(start, length);
 
 	printf("\nLoading %s to Flash Memory...\n", filename);
+	bufptr = (uint32_t *)buffer;
 	for (addr = start; addr < (start + length); addr += 4) {
+		int flush_stdout = 0;
+
 		counter += 4;
 		percent_complete = (counter * 100 / length);
 		if (!silent_mode) {
-			if ((addr & 0xF) == 0)
+			if ((addr & 0xF) == 0) {
 				printf("[%3d%% Flashed]   %08x: ", percent_complete, addr);
+				flush_stdout = 1;
+			}
 		}
 
-		fread((unsigned char *)&data, 1, sizeof(data), fd);
-		data = le32_to_cpu(data);
+		data = le32_to_cpu(*bufptr++);
 		if (data != 0xFFFFFFFF)
 			sflash_write_word(addr, data);
 
 		if (silent_mode) {
-			if ((counter & 0x3FF) == 0)
+			if ((counter & 0x3FF) == 0) {
 				printf("%4d%%   bytes = %d\r", percent_complete, counter);
-		} else
+				flush_stdout = 1;
+			}
+		} else {
 			printf("%08x%c", data, (addr & 0xF) == 0xC ? '\n' : ' ');
-
-		fflush(stdout);
-		data = 0xFFFFFFFF;	// This is in case file is shorter than expected length
+			flush_stdout = 1;
+		}
+		if (flush_stdout)
+			fflush(stdout);
 	}
-	fclose(fd);
+	free(buffer);
 	printf("Done  (%s loaded into Flash Memory OK)\n\n", filename);
 
 	sflash_reset();
