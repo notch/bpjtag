@@ -1,6 +1,62 @@
 // =======================================
-// WRT54G EJTAG DeBrick Utility   v4.0
+// WRT54G EJTAG DeBrick Utility   v4.3
 // =======================================
+
+*** New for v4.4 ***
+* Added PrAcc routines to support additional MIPS chips
+  without the ability to use EJTAG DMA Access
+* Added Chip ID for Broadcom BCM5365 Rev 1 CPU
+* Added Chip ID for Broadcom BCM6348 Rev 1 CPU (Big Endian)
+* Added Chip ID for Broadcom BCM6345 Rev 1 CPU
+* Added 6 new Flash Chip Parts to the list:
+      - SST39VF1601 1Mx16 BotB     (2MB)
+      - SST39VF1602 1Mx16 TopB     (2MB)
+      - SST39VF3201 2Mx16 BotB     (4MB)
+      - SST39VF3202 2Mx16 TopB     (4MB)
+      - SST39VF6401 4Mx16 BotB     (8MB)
+      - SST39VF6402 4Mx16 TopB     (8MB)
+* Added the following New Switch Options
+      - /noemw ............. prevent Enabling Memory Writes
+      - /nocwd ............. prevent Clearing CPU Watchdog Timer
+      - /dma ............... force use of DMA routines
+      - /nodma ............. force use of PRACC routines (No DMA)
+      - /window:XXXXXXXX ... custom flash window base (in HEX)
+      - /start:XXXXXXXX .... custom start location (in HEX)
+      - /length:XXXXXXXX ... custom length (in HEX)
+      - /silent ............ prevent scrolling display of data
+      - /skipdetect ........ skip auto detection of CPU Chip ID
+      - /instrlen:XX ....... set instruction length manually
+* Added elapsed time to Backup, Erase, and Flash routines
+* Other minor miscellaneous changes/additions.
+
+*** New for v4.3 ***
+
+* Corrected Macronix Flash Chip Block Defintions.
+* Add 8 new Flash Chip Parts to the list:
+      - AT49BV/LV16X 2Mx16 BotB    (4MB)
+      - AT49BV/LV16XT 2Mx16 TopB   (4MB)
+      - MBM29LV160B 1Mx16 BotB     (2MB)
+      - MBM29LV160T 1Mx16 TopB     (2MB)
+      - MX29LV161B 1Mx16 BotB      (2MB)
+      - MX29LV161T 1Mx16 TopB      (2MB)
+      - ST M29W160EB 1Mx16 BotB    (2MB)
+      - ST M29W160ET 1Mx16 TopB    (2MB)
+
+*** New for v4.2 ***
+
+* Changed the chip_detect routine to allow for easier
+  additions of new chip id's.
+* Added detection support for the Broadcom BCM5350 chip.
+* Fixed DMA routines to check status bit that was
+  removed in prior version.
+* Removed clockout routine in an effort to speed up access.
+* Changed clockin routine in an effort to speed up access.
+* Changed ReadData and WriteData routines to merely call
+  ReadWriteData routine.
+* Removed Defines from .h file and placed flash areas in a
+  structure list for easier maintenance should they change.
+* Miscellaneous other minor changes.
+
 
 *** New for v4.0 *** 
 

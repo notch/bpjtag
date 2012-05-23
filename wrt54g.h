@@ -1,15 +1,59 @@
 // **************************************************************************
 //
-//  WRT54G.H - Header file for the WRT54G/GS EJTAG DeBrick Utility  v4.1
+//  WRT54G.H - Header file for the WRT54G/GS EJTAG Debrick Utility  v4.4
 //
 //  Note:
 //  This program is for De-Bricking the WRT54G/GS routers
 //
-//  New for v4.1 - software re-written to support 38 flash chips and
-//                 auto-detect flash chip & flash size & adjust
-//                 region info accordingly for reading/writing to the
-//                 flash chips.  Also added support for compiling under
-//                 Windows, Linux, and FreeBSD.
+//  New for v4.4 - Added PrAcc routines to support additional MIPS chips
+//                 without the ability to use EJTAG DMA Access
+//               - Added Chip ID for Broadcom BCM5365 Rev 1 CPU
+//               - Added Chip ID for Broadcom BCM6348 Rev 1 CPU (Big Endian)
+//               - Added Chip ID for Broadcom BCM6345 Rev 1 CPU
+//               - Added 6 new Flash Chip Parts to the list:
+//                     - SST39VF1601 1Mx16 BotB     (2MB)
+//                     - SST39VF1602 1Mx16 TopB     (2MB)
+//                     - SST39VF3201 2Mx16 BotB     (4MB)
+//                     - SST39VF3202 2Mx16 TopB     (4MB)
+//                     - SST39VF6401 4Mx16 BotB     (8MB)
+//                     - SST39VF6402 4Mx16 TopB     (8MB)
+//               - Added the following New Switch Options
+//                     - /noemw ............. prevent Enabling Memory Writes
+//                     - /nocwd ............. prevent Clearing CPU Watchdog Timer
+//                     - /dma ............... force use of DMA routines
+//                     - /nodma ............. force use of PRACC routines (No DMA)
+//                     - /window:XXXXXXXX ... custom flash window base (in HEX)
+//                     - /start:XXXXXXXX .... custom start location (in HEX)
+//                     - /length:XXXXXXXX ... custom length (in HEX)
+//                     - /silent ............ prevent scrolling display of data
+//                     - /skipdetect ........ skip auto detection of CPU Chip ID
+//                     - /instrlen:XX ....... set instruction length manually
+//               - Added elapsed time to Backup, Erase, and Flash routines
+//               - Other minor miscellaneous changes/additions.
+//
+//  New for v4.3 - Corrected Macronix Flash Chip Block Defintions.
+//               - Add 8 new Flash Chip Parts to the list:
+//                     - AT49BV/LV16X 2Mx16 BotB    (4MB)
+//                     - AT49BV/LV16XT 2Mx16 TopB   (4MB)
+//                     - MBM29LV160B 1Mx16 BotB     (2MB)
+//                     - MBM29LV160T 1Mx16 TopB     (2MB)
+//                     - MX29LV161B 1Mx16 BotB      (2MB)
+//                     - MX29LV161T 1Mx16 TopB      (2MB)
+//                     - ST M29W160EB 1Mx16 BotB    (2MB)
+//                     - ST M29W160ET 1Mx16 TopB    (2MB)
+//
+//  New for v4.2 - Changed the chip_detect routine to allow for easier
+//                 additions of new chip id's.
+//               - Added detection support for the Broadcom BCM5350 chip.
+//               - Fixed DMA routines to check status bit that was
+//                 removed in prior version.
+//               - Removed clockout routine in an effort to speed up access.
+//               - Changed clockin routine in an effort to speed up access.
+//               - Changed ReadData and WriteData routines to merely call
+//                 ReadWriteData routine.
+//               - Removed Defines from .h file and placed flash areas in a
+//                 structure list for easier maintenance should they change.
+//               - Miscellaneous other minor changes.
 //
 // **************************************************************************
 //  Written by HairyDairyMaid (a.k.a. - lightbulb)
@@ -52,7 +96,7 @@
 #endif
 
 #define true  1
-#define false 1
+#define false 0
 
 #define RETRY_ATTEMPTS 16
 
@@ -74,15 +118,15 @@
 //
 // ------------------------------------------------------
 
-// --- Some BCM47XX Instructions ---
-#define INSTR_IDCODE    0x01
+// --- Some EJTAG Instruction Registers ---
 #define INSTR_EXTEST    0x00
+#define INSTR_IDCODE    0x01
 #define INSTR_SAMPLE    0x02
-#define INSTR_PRELOAD   0x02
-#define INSTR_BYPASS    0xFF
-#define INSTR_CONTROL   0x0A
-#define INSTR_DATA      0x09
+#define INSTR_IMPCODE   0x03
 #define INSTR_ADDRESS   0x08
+#define INSTR_DATA      0x09
+#define INSTR_CONTROL   0x0A
+#define INSTR_BYPASS    0xFF
 
 // --- Some EJTAG Bit Masks ---
 #define TOF             (1 << 1 )
@@ -102,77 +146,60 @@
 #define PERRST          (1 << 20)
 #define JTAGBRK         (1 << 12)
 #define DNM             (1 << 28)
+#define ROCC            (1 << 31)
+
 #define DMA_BYTE        0x00000000  //DMA tranfser size BYTE
 #define DMA_HALFWORD    0x00000080  //DMA transfer size HALFWORD
 #define DMA_WORD        0x00000100  //DMA transfer size WORD
 #define DMA_TRIPLEBYTE  0x00000180  //DMA transfer size TRIPLEBYTE
-
-// --- For 2MB Flash Chips ---
-#define  CFE_START_2MB         0x1FC00000
-#define  CFE_LENGTH_2MB        0x40000
-#define  KERNEL_START_2MB      0x1FC40000
-#define  KERNEL_LENGTH_2MB     0x1B0000
-#define  NVRAM_START_2MB       0x1FDF0000
-#define  NVRAM_LENGTH_2MB      0x10000
-#define  WHOLEFLASH_START_2MB  0x1FC00000
-#define  WHOLEFLASH_LENGTH_2MB 0x200000
-
-// --- For 4MB Flash Chips ---
-#define  CFE_START_4MB         0x1FC00000
-#define  CFE_LENGTH_4MB        0x40000
-#define  KERNEL_START_4MB      0x1FC40000
-#define  KERNEL_LENGTH_4MB     0x3B0000
-#define  NVRAM_START_4MB       0x1FFF0000
-#define  NVRAM_LENGTH_4MB      0x10000
-#define  WHOLEFLASH_START_4MB  0x1FC00000
-#define  WHOLEFLASH_LENGTH_4MB 0x400000
-
-// --- For 8MB Flash Chips ---
-#define  CFE_START_8MB         0x1C000000
-#define  CFE_LENGTH_8MB        0x40000
-#define  KERNEL_START_8MB      0x1C040000
-#define  KERNEL_LENGTH_8MB     0x7A0000
-#define  NVRAM_START_8MB       0x1C7E0000
-#define  NVRAM_LENGTH_8MB      0x20000
-#define  WHOLEFLASH_START_8MB  0x1C000000
-#define  WHOLEFLASH_LENGTH_8MB 0x800000
 
 #define  size8K        0x2000
 #define  size16K       0x4000
 #define  size32K       0x8000
 #define  size64K       0x10000
 #define  size128K      0x20000
+
 #define  size2MB       0x200000
 #define  size4MB       0x400000
 #define  size8MB       0x800000
 #define  size16MB      0x1000000
+
 #define  CMD_TYPE_BSC  0x01
 #define  CMD_TYPE_SCS  0x02
 #define  CMD_TYPE_AMD  0x03
 #define  CMD_TYPE_SST  0x04
 
 
+// EJTAG DEBUG Unit Vector on Debug Break
+#define MIPS_DEBUG_VECTOR_ADDRESS           0xFF200200
+
+// Our 'Pseudo' Virtual Memory Access Registers
+#define MIPS_VIRTUAL_ADDRESS_ACCESS         0xFF200000
+#define MIPS_VIRTUAL_DATA_ACCESS            0xFF200004
+
+
 // --- Uhh, Just Because I Have To ---
-static unsigned char clockout(void);
-static unsigned int ReadData(void);
-static unsigned int ReadWriteData(unsigned int in_data);
-static unsigned int ejtag_dma_read(unsigned int addr);
-static unsigned int ejtag_dma_read_h(unsigned int addr);
-void ShowData(unsigned int value);
-void WriteData(unsigned int in_data);
-void capture_dr(void);
-void capture_ir(void);
 void chip_detect(void);
 void chip_shutdown(void);
-void clockin(int tms, int tdi);
+static unsigned char clockin(int tms, int tdi);
 void define_block(unsigned int block_count, unsigned int block_size);
+static unsigned int ejtag_read(unsigned int addr);
+static unsigned int ejtag_read_h(unsigned int addr);
+void ejtag_write(unsigned int addr, unsigned int data);
+void ejtag_write_h(unsigned int addr, unsigned int data);
+static unsigned int ejtag_dma_read(unsigned int addr);
+static unsigned int ejtag_dma_read_h(unsigned int addr);
 void ejtag_dma_write(unsigned int addr, unsigned int data);
 void ejtag_dma_write_h(unsigned int addr, unsigned int data);
-void ejtag_issue_reset(void);
-void ejtag_jtagbrk(void);
+static unsigned int ejtag_pracc_read(unsigned int addr);
+void ejtag_pracc_write(unsigned int addr, unsigned int data);
+static unsigned int ejtag_pracc_read_h(unsigned int addr);
+void ejtag_pracc_write_h(unsigned int addr, unsigned int data);
 void identify_flash_part(void);
 void lpt_closeport(void);
 void lpt_openport(void);
+static unsigned int ReadData(void);
+static unsigned int ReadWriteData(unsigned int in_data);
 void run_backup(char *filename, unsigned int start, unsigned int length);
 void run_erase(char *filename, unsigned int start, unsigned int length);
 void run_flash(char *filename, unsigned int start, unsigned int length);
@@ -184,4 +211,109 @@ void sflash_probe(void);
 void sflash_reset(void);
 void sflash_write_word(unsigned int addr, unsigned int data);
 void show_usage(void);
+void ShowData(unsigned int value);
 void test_reset(void);
+void WriteData(unsigned int in_data);
+void ExecuteDebugModule(unsigned int *pmodule);
+void check_ejtag_features(void);
+
+
+unsigned int pracc_readword_code_module[] = {
+               // #
+               // # HairyDairyMaid's Assembler PrAcc Read Word Routine
+               // #
+               // start:
+               // 
+               // # Load R1 with the address of the pseudo-address register
+  0x3C01FF20,  // lui $1,  0xFF20
+  0x34210000,  // ori $1,  0x0000
+               // 
+               // # Load R2 with the address for the read
+  0x8C220000,  // lw $2,  ($1)
+               // 
+               // # Load R3 with the word @R2
+  0x8C430000,  // lw $3, 0($2)
+               // 
+               // # Store the value into the pseudo-data register
+  0xAC230004,  // sw $3, 4($1)
+               // 
+  0x00000000,  // nop
+  0x1000FFF9,  // beq $0, $0, start
+  0x00000000}; // nop
+
+
+unsigned int pracc_writeword_code_module[] = {
+               // #
+               // # HairyDairyMaid's Assembler PrAcc Write Word Routine
+               // #
+               // start:
+               // 
+               // # Load R1 with the address of the pseudo-address register
+  0x3C01FF20,  // lui $1,  0xFF20
+  0x34210000,  // ori $1,  0x0000
+               // 
+               // # Load R2 with the address for the write
+  0x8C220000,  // lw $2,  ($1)
+               // 
+               // # Load R3 with the data from pseudo-data register
+  0x8C230004,  // lw $3, 4($1)
+               // 
+               // # Store the word at @R2 (the address)
+  0xAC430000,  // sw $3,  ($2)
+               // 
+  0x00000000,  // nop
+  0x1000FFF9,  // beq $0, $0, start
+  0x00000000}; // nop
+
+
+unsigned int pracc_readhalf_code_module[] = {
+               // #
+               // # HairyDairyMaid's Assembler PrAcc Read HalfWord Routine
+               // #
+               // start:
+               // 
+               // # Load R1 with the address of the pseudo-address register
+  0x3C01FF20,  // lui $1,  0xFF20
+  0x34210000,  // ori $1,  0x0000
+               // 
+               // # Load R2 with the address for the read
+  0x8C220000,  // lw $2,  ($1)
+               // 
+               // # Load R3 with the half word @R2
+  0x94430000,  // lhu $3, 0($2)
+               // 
+               // # Store the value into the pseudo-data register
+  0xAC230004,  // sw $3, 4($1)
+               // 
+  0x00000000,  // nop
+  0x1000FFF9,  // beq $0, $0, start
+  0x00000000}; // nop
+
+
+unsigned int pracc_writehalf_code_module[] = {
+               // #
+               // # HairyDairyMaid's Assembler PrAcc Write HalfWord Routine
+               // #
+               // start:
+               // 
+               // # Load R1 with the address of the pseudo-address register
+  0x3C01FF20,  // lui $1,  0xFF20
+  0x34210000,  // ori $1,  0x0000
+               // 
+               // # Load R2 with the address for the write
+  0x8C220000,  // lw $2,  ($1)
+               // 
+               // # Load R3 with the data from pseudo-data register
+  0x8C230004,  // lw $3, 4($1)
+               // 
+               // # Store the half word at @R2 (the address)
+  0xA4430000,  // sh $3,  ($2)
+               // 
+  0x00000000,  // nop
+  0x1000FFF9,  // beq $0, $0, start
+  0x00000000}; // nop
+
+
+// **************************************************************************
+// End of File
+// **************************************************************************
