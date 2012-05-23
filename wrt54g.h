@@ -105,17 +105,17 @@
 
 #ifndef WINDOWS_VERSION
 
-   #include <unistd.h>
-   #include <sys/ioctl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
 
-   #ifdef __FreeBSD__
-      #include <dev/ppbus/ppi.h>
-      #include <dev/ppbus/ppbconf.h>
-      #define PPWDATA PPISDATA
-      #define PPRSTATUS PPIGSTATUS
-   #else
-      #include <linux/ppdev.h>
-   #endif
+#ifdef __FreeBSD__
+#include <dev/ppbus/ppi.h>
+#include <dev/ppbus/ppbconf.h>
+#define PPWDATA PPISDATA
+#define PPRSTATUS PPIGSTATUS
+#else
+#include <linux/ppdev.h>
+#endif
 
 #endif
 
@@ -167,10 +167,10 @@
 #define DNM             (1 << 28)
 #define ROCC            (1 << 31)
 
-#define DMA_BYTE        0x00000000  //DMA tranfser size BYTE
-#define DMA_HALFWORD    0x00000080  //DMA transfer size HALFWORD
-#define DMA_WORD        0x00000100  //DMA transfer size WORD
-#define DMA_TRIPLEBYTE  0x00000180  //DMA transfer size TRIPLEBYTE
+#define DMA_BYTE        0x00000000	//DMA tranfser size BYTE
+#define DMA_HALFWORD    0x00000080	//DMA transfer size HALFWORD
+#define DMA_WORD        0x00000100	//DMA transfer size WORD
+#define DMA_TRIPLEBYTE  0x00000180	//DMA transfer size TRIPLEBYTE
 
 #define  size4K        0x1000
 #define  size8K        0x2000
@@ -202,139 +202,143 @@
 
 
 // --- Uhh, Just Because I Have To ---
-void chip_detect(void);
-void chip_shutdown(void);
-static unsigned char clockin(int tms, int tdi);
-void define_block(unsigned int block_count, unsigned int block_size);
-static unsigned int ejtag_read(unsigned int addr);
-static unsigned int ejtag_read_h(unsigned int addr);
-void ejtag_write(unsigned int addr, unsigned int data);
-void ejtag_write_h(unsigned int addr, unsigned int data);
-static unsigned int ejtag_dma_read(unsigned int addr);
-static unsigned int ejtag_dma_read_h(unsigned int addr);
-void ejtag_dma_write(unsigned int addr, unsigned int data);
-void ejtag_dma_write_h(unsigned int addr, unsigned int data);
-static unsigned int ejtag_pracc_read(unsigned int addr);
-void ejtag_pracc_write(unsigned int addr, unsigned int data);
-static unsigned int ejtag_pracc_read_h(unsigned int addr);
-void ejtag_pracc_write_h(unsigned int addr, unsigned int data);
-void identify_flash_part(void);
-void lpt_closeport(void);
-void lpt_openport(void);
-static unsigned int ReadData(void);
-static unsigned int ReadWriteData(unsigned int in_data);
-void run_backup(char *filename, unsigned int start, unsigned int length);
-void run_erase(char *filename, unsigned int start, unsigned int length);
-void run_flash(char *filename, unsigned int start, unsigned int length);
-void set_instr(int instr);
-void sflash_config(void);
-void sflash_erase_area(unsigned int start, unsigned int length);
-void sflash_erase_block(unsigned int addr);
-void sflash_probe(void);
-void sflash_reset(void);
-void sflash_write_word(unsigned int addr, unsigned int data);
-void show_usage(void);
-void ShowData(unsigned int value);
-void test_reset(void);
-void WriteData(unsigned int in_data);
-void ExecuteDebugModule(unsigned int *pmodule);
-void check_ejtag_features(void);
+void chip_detect (void);
+void chip_shutdown (void);
+static unsigned char clockin (int tms, int tdi);
+void define_block (unsigned int block_count, unsigned int block_size);
+static unsigned int ejtag_read (unsigned int addr);
+static unsigned int ejtag_read_h (unsigned int addr);
+void ejtag_write (unsigned int addr, unsigned int data);
+void ejtag_write_h (unsigned int addr, unsigned int data);
+static unsigned int ejtag_dma_read (unsigned int addr);
+static unsigned int ejtag_dma_read_h (unsigned int addr);
+void ejtag_dma_write (unsigned int addr, unsigned int data);
+void ejtag_dma_write_h (unsigned int addr, unsigned int data);
+static unsigned int ejtag_pracc_read (unsigned int addr);
+void ejtag_pracc_write (unsigned int addr, unsigned int data);
+static unsigned int ejtag_pracc_read_h (unsigned int addr);
+void ejtag_pracc_write_h (unsigned int addr, unsigned int data);
+void identify_flash_part (void);
+void lpt_closeport (void);
+void lpt_openport (void);
+static unsigned int ReadData (void);
+static unsigned int ReadWriteData (unsigned int in_data);
+void run_backup (char *filename, unsigned int start, unsigned int length);
+void run_erase (char *filename, unsigned int start, unsigned int length);
+void run_flash (char *filename, unsigned int start, unsigned int length);
+void set_instr (int instr);
+void sflash_config (void);
+void sflash_erase_area (unsigned int start, unsigned int length);
+void sflash_erase_block (unsigned int addr);
+void sflash_probe (void);
+void sflash_reset (void);
+void sflash_write_word (unsigned int addr, unsigned int data);
+void show_usage (void);
+void ShowData (unsigned int value);
+void test_reset (void);
+void WriteData (unsigned int in_data);
+void ExecuteDebugModule (unsigned int *pmodule);
+void check_ejtag_features (void);
 
 
 unsigned int pracc_readword_code_module[] = {
-               // #
-               // # HairyDairyMaid's Assembler PrAcc Read Word Routine
-               // #
-               // start:
-               // 
-               // # Load R1 with the address of the pseudo-address register
-  0x3C01FF20,  // lui $1,  0xFF20
-  0x34210000,  // ori $1,  0x0000
-               // 
-               // # Load R2 with the address for the read
-  0x8C220000,  // lw $2,  ($1)
-               // 
-               // # Load R3 with the word @R2
-  0x8C430000,  // lw $3, 0($2)
-               // 
-               // # Store the value into the pseudo-data register
-  0xAC230004,  // sw $3, 4($1)
-               // 
-  0x00000000,  // nop
-  0x1000FFF9,  // beq $0, $0, start
-  0x00000000}; // nop
+  // #
+  // # HairyDairyMaid's Assembler PrAcc Read Word Routine
+  // #
+  // start:
+  // 
+  // # Load R1 with the address of the pseudo-address register
+  0x3C01FF20,			// lui $1,  0xFF20
+  0x34210000,			// ori $1,  0x0000
+  // 
+  // # Load R2 with the address for the read
+  0x8C220000,			// lw $2,  ($1)
+  // 
+  // # Load R3 with the word @R2
+  0x8C430000,			// lw $3, 0($2)
+  // 
+  // # Store the value into the pseudo-data register
+  0xAC230004,			// sw $3, 4($1)
+  // 
+  0x00000000,			// nop
+  0x1000FFF9,			// beq $0, $0, start
+  0x00000000
+};				// nop
 
 
 unsigned int pracc_writeword_code_module[] = {
-               // #
-               // # HairyDairyMaid's Assembler PrAcc Write Word Routine
-               // #
-               // start:
-               // 
-               // # Load R1 with the address of the pseudo-address register
-  0x3C01FF20,  // lui $1,  0xFF20
-  0x34210000,  // ori $1,  0x0000
-               // 
-               // # Load R2 with the address for the write
-  0x8C220000,  // lw $2,  ($1)
-               // 
-               // # Load R3 with the data from pseudo-data register
-  0x8C230004,  // lw $3, 4($1)
-               // 
-               // # Store the word at @R2 (the address)
-  0xAC430000,  // sw $3,  ($2)
-               // 
-  0x00000000,  // nop
-  0x1000FFF9,  // beq $0, $0, start
-  0x00000000}; // nop
+  // #
+  // # HairyDairyMaid's Assembler PrAcc Write Word Routine
+  // #
+  // start:
+  // 
+  // # Load R1 with the address of the pseudo-address register
+  0x3C01FF20,			// lui $1,  0xFF20
+  0x34210000,			// ori $1,  0x0000
+  // 
+  // # Load R2 with the address for the write
+  0x8C220000,			// lw $2,  ($1)
+  // 
+  // # Load R3 with the data from pseudo-data register
+  0x8C230004,			// lw $3, 4($1)
+  // 
+  // # Store the word at @R2 (the address)
+  0xAC430000,			// sw $3,  ($2)
+  // 
+  0x00000000,			// nop
+  0x1000FFF9,			// beq $0, $0, start
+  0x00000000
+};				// nop
 
 
 unsigned int pracc_readhalf_code_module[] = {
-               // #
-               // # HairyDairyMaid's Assembler PrAcc Read HalfWord Routine
-               // #
-               // start:
-               // 
-               // # Load R1 with the address of the pseudo-address register
-  0x3C01FF20,  // lui $1,  0xFF20
-  0x34210000,  // ori $1,  0x0000
-               // 
-               // # Load R2 with the address for the read
-  0x8C220000,  // lw $2,  ($1)
-               // 
-               // # Load R3 with the half word @R2
-  0x94430000,  // lhu $3, 0($2)
-               // 
-               // # Store the value into the pseudo-data register
-  0xAC230004,  // sw $3, 4($1)
-               // 
-  0x00000000,  // nop
-  0x1000FFF9,  // beq $0, $0, start
-  0x00000000}; // nop
+  // #
+  // # HairyDairyMaid's Assembler PrAcc Read HalfWord Routine
+  // #
+  // start:
+  // 
+  // # Load R1 with the address of the pseudo-address register
+  0x3C01FF20,			// lui $1,  0xFF20
+  0x34210000,			// ori $1,  0x0000
+  // 
+  // # Load R2 with the address for the read
+  0x8C220000,			// lw $2,  ($1)
+  // 
+  // # Load R3 with the half word @R2
+  0x94430000,			// lhu $3, 0($2)
+  // 
+  // # Store the value into the pseudo-data register
+  0xAC230004,			// sw $3, 4($1)
+  // 
+  0x00000000,			// nop
+  0x1000FFF9,			// beq $0, $0, start
+  0x00000000
+};				// nop
 
 
 unsigned int pracc_writehalf_code_module[] = {
-               // #
-               // # HairyDairyMaid's Assembler PrAcc Write HalfWord Routine
-               // #
-               // start:
-               // 
-               // # Load R1 with the address of the pseudo-address register
-  0x3C01FF20,  // lui $1,  0xFF20
-  0x34210000,  // ori $1,  0x0000
-               // 
-               // # Load R2 with the address for the write
-  0x8C220000,  // lw $2,  ($1)
-               // 
-               // # Load R3 with the data from pseudo-data register
-  0x8C230004,  // lw $3, 4($1)
-               // 
-               // # Store the half word at @R2 (the address)
-  0xA4430000,  // sh $3,  ($2)
-               // 
-  0x00000000,  // nop
-  0x1000FFF9,  // beq $0, $0, start
-  0x00000000}; // nop
+  // #
+  // # HairyDairyMaid's Assembler PrAcc Write HalfWord Routine
+  // #
+  // start:
+  // 
+  // # Load R1 with the address of the pseudo-address register
+  0x3C01FF20,			// lui $1,  0xFF20
+  0x34210000,			// ori $1,  0x0000
+  // 
+  // # Load R2 with the address for the write
+  0x8C220000,			// lw $2,  ($1)
+  // 
+  // # Load R3 with the data from pseudo-data register
+  0x8C230004,			// lw $3, 4($1)
+  // 
+  // # Store the half word at @R2 (the address)
+  0xA4430000,			// sh $3,  ($2)
+  // 
+  0x00000000,			// nop
+  0x1000FFF9,			// beq $0, $0, start
+  0x00000000
+};				// nop
 
 
 // **************************************************************************
