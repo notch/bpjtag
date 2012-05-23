@@ -1,168 +1,7 @@
 // **************************************************************************
 //
-//  Tjtag.c - WRT54G/GS EJTAG Debrick Utility  v4.8.1 -Tornado MOD
+//  Tjtag.c - EJTAG Debrick Utility v2 - Tornado MOD
 //
-//  Note:
-//
-// My modifications - Thanks to HDM's great work
-// tornado@odessaua.com
-// New for v4.8.1 -Added 2 new Flash Chip Parts to the list:
-//                     - EN29LV160A  2Mx16 TopB     (2MB)
-//                     - EN29LV160A  2Mx16 BotB     (2MB)
-//                 Added 4 New Processors
-//                     - BCM5453 Rev 1
-//                     - BCM5453 Rev 2
-//                     - BCM5365 Rev 1
-//                     - BCM4704 Rev 9
-//                 Added the following New Switch Options
-//                     - /bypass .............Unlock Bypass
-//                       for AMD/Spansion type Flash Chips
-//                 Added BSP option for use with flash, erase & backup
-//
-//  New for v4.8 - Added 2 new Flash Chip Parts to the list:
-//                     - SST39VF6401B 4Mx16 BotB     (8MB)
-//                     - SST39VF6402B 4Mx16 TopB     (8MB)
-//               - Added the following New Switch Options
-//                     - /wiggler ........... use wiggler cable
-//
-//  New for v4.7 - Added 2 new Flash Chip Parts to the list:
-//                     - K8D3216UTC  2Mx16 TopB     (4MB)
-//                     - K8D3216UBC  2Mx16 BotB     (4MB)
-//
-//  New for v4.6 - Added Common Flash Chip Polling routine
-//               - Added "-probeonly" parameter (good idea jmranger)
-//               - Added Chip ID for Broadcom BCM4704 Rev 8 CPU
-//               - Added TRST Signal Support for Wiggler Cables
-//               - Added Chip ID for BRECIS MSP2007-CA-A1 CPU
-//               - Added Experimental 1MB Flash Chip Offsets
-//               - Added 2 new Flash Chip Parts to the list:
-//                     - MX29LV800BTC 512kx16 TopB  (1MB)
-//                     - MX29LV800BTC 512kx16 BotB  (1MB)
-//
-//  New for v4.5 - Added 2 new Flash Chip Parts to the list:
-//                     - K8D1716UTC 1Mx16 TopB      (2MB)
-//                     - K8D1716UBC 1Mx16 BotB      (2MB)
-//
-//  New for v4.4 - Added PrAcc routines to support additional MIPS chips
-//                 without the ability to use EJTAG DMA Access
-//               - Added Chip ID for Broadcom BCM5365 Rev 1 CPU
-//               - Added Chip ID for Broadcom BCM6348 Rev 1 CPU (Big Endian)
-//               - Added Chip ID for Broadcom BCM6345 Rev 1 CPU
-//               - Added 6 new Flash Chip Parts to the list:
-//                     - SST39VF1601 1Mx16 BotB     (2MB)
-//                     - SST39VF1602 1Mx16 TopB     (2MB)
-//                     - SST39VF3201 2Mx16 BotB     (4MB)
-//                     - SST39VF3202 2Mx16 TopB     (4MB)
-//                     - SST39VF6401 4Mx16 BotB     (8MB)
-//                     - SST39VF6402 4Mx16 TopB     (8MB)
-//               - Added the following New Switch Options
-//                     - /noemw ............. prevent Enabling Memory Writes
-//                     - /nocwd ............. prevent Clearing CPU Watchdog Timer
-//                     - /dma ............... force use of DMA routines
-//                     - /nodma ............. force use of PRACC routines (No DMA)
-//                     - /window:XXXXXXXX ... custom flash window base (in HEX)
-//                     - /start:XXXXXXXX .... custom start location (in HEX)
-//                     - /length:XXXXXXXX ... custom length (in HEX)
-//                     - /silent ............ prevent scrolling display of data
-//                     - /skipdetect ........ skip auto detection of CPU Chip ID
-//                     - /instrlen:XX ....... set instruction length manually
-//               - Added elapsed time to Backup, Erase, and Flash routines
-//               - Other minor miscellaneous changes/additions.
-//
-//  New for v4.3 - Corrected Macronix Flash Chip Block Definitions.
-//               - Add 8 new Flash Chip Parts to the list:
-//                     - AT49BV/LV16X 2Mx16 BotB    (4MB)
-//                     - AT49BV/LV16XT 2Mx16 TopB   (4MB)
-//                     - MBM29LV160B 1Mx16 BotB     (2MB)
-//                     - MBM29LV160T 1Mx16 TopB     (2MB)
-//                     - MX29LV161B 1Mx16 BotB      (2MB)
-//                     - MX29LV161T 1Mx16 TopB      (2MB)
-//                     - ST M29W160EB 1Mx16 BotB    (2MB)
-//                     - ST M29W160ET 1Mx16 TopB    (2MB)
-//
-//  New for v4.2 - Changed the chip_detect routine to allow for easier
-//                 additions of new chip id's.
-//               - Added detection support for the Broadcom BCM5350 chip.
-//               - Fixed DMA routines to check status bit that was
-//                 removed in prior version.
-//               - Removed clockout routine in an effort to speed up access.
-//               - Changed clockin routine in an effort to speed up access.
-//               - Changed ReadData and WriteData routines to merely call
-//                 ReadWriteData routine.
-//               - Removed Defines from .h file and placed flash areas in a
-//                 structure list for easier maintenance should they change.
-//               - Miscellaneous other minor changes.
-//
-// **************************************************************************
-//
-//  tjtag : read/write flash memory via EJTAG
-//   usage: tjtag [parameter] </noreset> </noemw> </nocwd> </nobreak> </noerase>
-//                             </notimestamp> </dma> </nodma>
-//                             <start:XXXXXXXX> </length:XXXXXXXX>
-//                             </silent> </skipdetect> </instrlen:XX> </fc:XX> /bypass
-//
-//              Required Parameter
-//              ------------------
-//              -backup:cfe
-//              -backup:nvram
-//              -backup:kernel
-//              -backup:wholeflash
-//              -backup:custom
-//                      -backup:bsp
-//              -erase:cfe
-//              -erase:nvram
-//              -erase:kernel
-//              -erase:wholeflash
-//              -erase:custom
-//                      -erase:bsp
-//              -flash:cfe
-//              -flash:nvram
-//              -flash:kernel
-//              -flash:wholeflash
-//              -flash:custom
-//                      -flash:bsp
-//              -probeonly
-//
-//              Optional Switches
-//              -----------------
-//              /noreset ........... prevent Issuing EJTAG CPU reset
-//              /noemw ............. prevent Enabling Memory Writes
-//              /nocwd ............. prevent Clearing CPU Watchdog Timer
-//              /nobreak ........... prevent Issuing Debug Mode JTAGBRK
-//              /noerase ........... prevent Forced Erase before Flashing
-//              /notimestamp ....... prevent Timestamping of Backups
-//              /dma ............... force use of DMA routines
-//              /nodma ............. force use of PRACC routines (No DMA)
-//              /start:XXXXXXXX .... custom start location (in HEX)
-//              /length:XXXXXXXX ... custom length (in HEX)
-//              /silent ............ prevent scrolling display of data
-//              /skipdetect ........ skip auto detection of CPU Chip ID
-//              /instrlen:XX ....... set instruction length manually
-//              /wiggler ........... use wiggler cable
-//              /fc:XX = Optional (Manual) Flash Chip Selection
-//              /bypass ............ Enables Unlock bypass / disables sflash poll
-//                                   for AMD cmd type flash Chips
-//
-// **************************************************************************
-//  Written by HairyDairyMaid (a.k.a. - lightbulb)
-//  hairydairymaid@yahoo.com
-// **************************************************************************
-//
-//  This program is copyright (C) 2004 HairyDairyMaid (a.k.a. Lightbulb)
-//  This program is free software; you can redistribute it and/or modify it
-//  under the terms of version 2 the GNU General Public License as published
-//  by the Free Software Foundation.
-//  This program is distributed in the hope that it will be useful, but WITHOUT
-//  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-//  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-//  more details.
-//  To view a copy of the license go to:
-//  http://www.fsf.org/copyleft/gpl.html
-//  To receive a copy of the GNU General Public License write the Free Software
-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-//
-// **************************************************************************
-
 // Default is Compile for Linux (both #define's below should be commented out)
 #define WINDOWS_VERSION		// uncomment only this for Windows Compile / MS Visual C Compiler
 //#define __FreeBSD__       // uncomment only this for FreeBSD
@@ -175,7 +14,7 @@
 
 #ifdef WINDOWS_VERSION
 #define tnano(seconds) Sleep((seconds) / 1000000)
- /* Windows sleep is milliseconds, time/1000000 gives us nanoseconds */
+/* Windows sleep is milliseconds, time/1000000 gives us nanoseconds */
 #else
 #define tnano(seconds) sleep((seconds) / 1000000000)
 #endif
@@ -246,6 +85,7 @@ processor_chip_type processor_chip_list[] = {
   {0x0470417F, 8, "Broadcom BCM4704 Rev 8 CPU"},	// BCM4704 chip (used in the WRTSL54GS units)
   {0x1471217F, 8, "Broadcom BCM4712 Rev 1 CPU"},
   {0x2471217F, 8, "Broadcom BCM4712 Rev 2 CPU"},
+  {0x0478517F, 8, "Broadcom BCM4785 Rev 1 CPU"},	// Tornado WRT350N
   {0x0535017F, 8, "Broadcom BCM5350 Rev 1 CPU"},
   {0x0535217F, 8, "Broadcom BCM5352 Rev 1 CPU"},
   {0x1535417F, 8, "Broadcom BCM5354 KFBG Rev 1 CPU"},	// Tornado - WRT54G GV8/GSV7
@@ -256,6 +96,7 @@ processor_chip_type processor_chip_list[] = {
   {0x0634817F, 5, "Broadcom BCM6348 Rev 1 CPU"},
   {0x0000100F, 5, "TI AR7WRD TNETD7300GDU Rev 1 CPU"},	// TI AR7WRD Only Partially Verified
   {0x102002E1, 5, "BRECIS MSP2007-CA-A1 CPU"},	// BRECIS chip - Not Completely Verified Yet
+  {0x0B52D02F, 5, "TI TNETV1060GDW CPU"},	// Fox WRTP54G
   {0, 0, 0}
 };
 
@@ -329,87 +170,49 @@ typedef struct _flash_chip_type
 
 
 flash_chip_type flash_chip_list[] = {
+  /* AMD, Spansion */
+  {0x00C2, 0x22DA, size1MB, CMD_TYPE_AMD, "MX29LV800BTC 512kx16 TopB  (1MB)",
+   15, size32K, 1, size16K, 2, size4K, 1, size8K},
+  {0x00C2, 0x225B, size1MB, CMD_TYPE_AMD, "MX29LV800BTC 512kx16 BotB  (1MB)",
+   1, size8K, 2, size4K, 1, size16K, 15, size32K},
+
   {0x0001, 0x2249, size2MB, CMD_TYPE_AMD, "AMD 29lv160DB 1Mx16 BotB   (2MB)",
    1, size16K, 2, size8K, 1, size32K, 31, size64K},
   {0x0001, 0x22c4, size2MB, CMD_TYPE_AMD, "AMD 29lv160DT 1Mx16 TopB   (2MB)",
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x0001, 0x22f9, size4MB, CMD_TYPE_AMD, "AMD 29lv320DB 2Mx16 BotB   (4MB)",
-   8, size8K, 63, size64K, 0, 0, 0, 0},
-  {0x0001, 0x22f6, size4MB, CMD_TYPE_AMD, "AMD 29lv320DT 2Mx16 TopB   (4MB)",
-   63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x007f, 0x2249, size2MB, CMD_TYPE_AMD, "EON EN29LV160AB 1Mx16 BotB  (2MB)",
+  {0x007f, 0x2249, size2MB, CMD_TYPE_AMD, "EON EN29LV160A 1Mx16 BotB  (2MB)",
    1, size16K, 2, size8K, 1, size32K, 31, size64K},
-  {0x007f, 0x22C4, size2MB, CMD_TYPE_AMD, "EON EN29LV160AT 1Mx16 TopB  (2MB)",
+  {0x007f, 0x22C4, size2MB, CMD_TYPE_AMD, "EON EN29LV160A 1Mx16 TopB  (2MB)",
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
+  {0x0004, 0x2249, size2MB, CMD_TYPE_AMD, "MBM29LV160B 1Mx16 BotB     (2MB)",
+   1, size16K, 2, size8K, 1, size32K, 31, size64K},
+  {0x0004, 0x22c4, size2MB, CMD_TYPE_AMD, "MBM29LV160T 1Mx16 TopB     (2MB)",
+   31, size64K, 1, size32K, 2, size8K, 1, size16K},
+  {0x00C2, 0x2249, size2MB, CMD_TYPE_AMD, "MX29LV161B 1Mx16 BotB      (2MB)",
+   1, size16K, 2, size8K, 1, size32K, 31, size64K},
+  {0x00C2, 0x22c4, size2MB, CMD_TYPE_AMD, "MX29LV161T 1Mx16 TopB      (2MB)",
+   31, size64K, 1, size32K, 2, size8K, 1, size16K},
+  {0x00EC, 0x2275, size2MB, CMD_TYPE_AMD, "K8D1716UTC  1Mx16 TopB     (2MB)",
+   31, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x00EC, 0x2277, size2MB, CMD_TYPE_AMD, "K8D1716UBC  1Mx16 BotB     (2MB)",
+   8, size8K, 31, size64K, 0, 0, 0, 0},
+  {0x0020, 0x2249, size2MB, CMD_TYPE_AMD, "ST M29W160EB 1Mx16 BotB    (2MB)",
+   1, size16K, 2, size8K, 1, size32K, 31, size64K},
+  {0x0020, 0x22c4, size2MB, CMD_TYPE_AMD, "ST M29W160ET 1Mx16 TopB    (2MB)",
+   31, size64K, 1, size32K, 2, size8K, 1, size16K},
+  {0x00C2, 0x0014, size2MB, CMD_TYPE_AMD, "Macronix MX25L160A         (2MB)", 32, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+
+  {0x00EC, 0x22A0, size2MB, CMD_TYPE_AMD, "K8D3216UTC  2Mx16 TopB     (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x00EC, 0x22A2, size2MB, CMD_TYPE_AMD, "K8D3216UBC  2Mx16 BotB     (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+
   {0x0001, 0x2200, size4MB, CMD_TYPE_AMD, "AMD 29lv320MB 2Mx16 BotB   (4MB)",
    8, size8K, 63, size64K, 0, 0, 0, 0},
   {0x0001, 0x227E, size4MB, CMD_TYPE_AMD, "AMD 29lv320MT 2Mx16 TopB   (4MB)",
    63, size64K, 8, size8K, 0, 0, 0, 0},
   {0x0001, 0x2201, size4MB, CMD_TYPE_AMD, "AMD 29lv320MT 2Mx16 TopB   (4MB)",
    63, size64K, 8, size8K, 0, 0, 0, 0},
-// { 0x0001, 0x00A3, size4MB, CMD_TYPE_AMD, "AMD/SPAN S29al032D 2Mx16 BotB M0  (4MB)"   ,8,size8K,     63,size64K,   0,0,        0,0        },
-// { 0x0001, 0x22f6, size4MB, CMD_TYPE_AMD, "AMD/SPAN S29al032D 2Mx16 BotB M3  (4MB)"   ,8,size8K,     63,size64K,   0,0,        0,0        },
-// { 0x0001, 0x22f9, size4MB, CMD_TYPE_AMD, "AMD/SPAN S29al032D 2Mx16 BotB M4  (4MB)"   ,8,size8K,     63,size64K,   0,0,        0,0        },
-
-
-  {0x0089, 0x0018, size16MB, CMD_TYPE_SCS, "Intel 28F128J3 8Mx16      (16MB)",
-   128, size128K, 0, 0, 0, 0, 0, 0},
-  {0x0089, 0x8891, size2MB, CMD_TYPE_BSC, "Intel 28F160B3 1Mx16 BotB  (2MB)",
-   8, size8K, 31, size64K, 0, 0, 0, 0},
-  {0x0089, 0x8890, size2MB, CMD_TYPE_BSC, "Intel 28F160B3 1Mx16 TopB  (2MB)",
-   31, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x0089, 0x88C3, size2MB, CMD_TYPE_BSC, "Intel 28F160C3 1Mx16 BotB  (2MB)",
-   8, size8K, 31, size64K, 0, 0, 0, 0},
-  {0x0089, 0x88C2, size2MB, CMD_TYPE_BSC, "Intel 28F160C3 1Mx16 TopB  (2MB)",
-   31, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x00b0, 0x00d0, size2MB, CMD_TYPE_SCS, "Intel 28F160S3/5 1Mx16     (2MB)",
-   32, size64K, 0, 0, 0, 0, 0, 0},
-  {0x0089, 0x8897, size4MB, CMD_TYPE_BSC, "Intel 28F320B3 2Mx16 BotB  (4MB)",
-   8, size8K, 63, size64K, 0, 0, 0, 0},
-  {0x0089, 0x8896, size4MB, CMD_TYPE_BSC, "Intel 28F320B3 2Mx16 TopB  (4MB)",
-   63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x0089, 0x88C5, size4MB, CMD_TYPE_BSC, "Intel 28F320C3 2Mx16 BotB  (4MB)",
-   8, size8K, 63, size64K, 0, 0, 0, 0},
-  {0x0089, 0x88C4, size4MB, CMD_TYPE_BSC, "Intel 28F320C3 2Mx16 TopB  (4MB)",
-   63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x0089, 0x0016, size4MB, CMD_TYPE_SCS, "Intel 28F320J3 2Mx16       (4MB)",
-   32, size128K, 0, 0, 0, 0, 0, 0},
-  {0x0089, 0x0014, size4MB, CMD_TYPE_SCS, "Intel 28F320J5 2Mx16       (4MB)",
-   32, size128K, 0, 0, 0, 0, 0, 0},
-  {0x00b0, 0x00d4, size4MB, CMD_TYPE_SCS, "Intel 28F320S3/5 2Mx16     (4MB)",
-   64, size64K, 0, 0, 0, 0, 0, 0},
-  {0x0089, 0x8899, size8MB, CMD_TYPE_BSC, "Intel 28F640B3 4Mx16 BotB  (8MB)",
-   8, size8K, 127, size64K, 0, 0, 0, 0},
-  {0x0089, 0x8898, size8MB, CMD_TYPE_BSC, "Intel 28F640B3 4Mx16 TopB  (8MB)",
-   127, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x0089, 0x88CD, size8MB, CMD_TYPE_BSC, "Intel 28F640C3 4Mx16 BotB  (8MB)",
-   8, size8K, 127, size64K, 0, 0, 0, 0},
-  {0x0089, 0x88CC, size8MB, CMD_TYPE_BSC, "Intel 28F640C3 4Mx16 TopB  (8MB)",
-   127, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x0089, 0x0017, size8MB, CMD_TYPE_SCS, "Intel 28F640J3 4Mx16       (8MB)",
-   64, size128K, 0, 0, 0, 0, 0, 0},
-  {0x0089, 0x0015, size8MB, CMD_TYPE_SCS, "Intel 28F640J5 4Mx16       (8MB)",
-   64, size128K, 0, 0, 0, 0, 0, 0},
-  {0x0004, 0x22F9, size4MB, CMD_TYPE_AMD, "MBM29LV320BE 2Mx16 BotB    (4MB)",
-   1, size16K, 2, size8K, 1, size32K, 63, size64K},
-  {0x0004, 0x22F6, size4MB, CMD_TYPE_AMD, "MBM29LV320TE 2Mx16 TopB    (4MB)",
-   63, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x00C2, 0x22A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)",
-   8, size8K, 63, size64K, 0, 0, 0, 0},
-  {0x00C2, 0x00A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)",
-   8, size8K, 63, size64K, 0, 0, 0, 0},
-  {0x00C2, 0x00A7, size4MB, CMD_TYPE_AMD, "MX29LV320T 2Mx16 TopB      (4MB)",
-   63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x00C2, 0x22A7, size4MB, CMD_TYPE_AMD, "MX29LV320T 2Mx16 TopB      (4MB)",
-   63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x00BF, 0x2783, size4MB, CMD_TYPE_SST, "SST39VF320 2Mx16           (4MB)",
-   64, size64K, 0, 0, 0, 0, 0, 0},
-  {0x0020, 0x22CB, size4MB, CMD_TYPE_AMD, "ST 29w320DB 2Mx16 BotB     (4MB)",
-   1, size16K, 2, size8K, 1, size32K, 63, size64K},
-  {0x0020, 0x22CA, size4MB, CMD_TYPE_AMD, "ST 29w320DT 2Mx16 TopB     (4MB)",
-   63, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x00b0, 0x00e3, size4MB, CMD_TYPE_BSC, "Sharp 28F320BJE 2Mx16 BotB (4MB)",
-   8, size8K, 63, size64K, 0, 0, 0, 0},
   {0x0098, 0x009C, size4MB, CMD_TYPE_AMD, "TC58FVB321 2Mx16 BotB      (4MB)",
    1, size16K, 2, size8K, 1, size32K, 63, size64K},
   {0x0098, 0x009A, size4MB, CMD_TYPE_AMD, "TC58FVT321 2Mx16 TopB      (4MB)",
@@ -422,46 +225,119 @@ flash_chip_type flash_chip_list[] = {
    8, size8K, 63, size64K, 0, 0, 0, 0},
   {0x0004, 0x2250, size4MB, CMD_TYPE_AMD, "MBM29DL323TE 2Mx16 TopB    (4MB)",
    63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x0004, 0x2249, size2MB, CMD_TYPE_AMD, "MBM29LV160B 1Mx16 BotB     (2MB)",
-   1, size16K, 2, size8K, 1, size32K, 31, size64K},
-  {0x0004, 0x22c4, size2MB, CMD_TYPE_AMD, "MBM29LV160T 1Mx16 TopB     (2MB)",
-   31, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x00C2, 0x2249, size2MB, CMD_TYPE_AMD, "MX29LV161B 1Mx16 BotB      (2MB)",
-   1, size16K, 2, size8K, 1, size32K, 31, size64K},
-  {0x00C2, 0x22c4, size2MB, CMD_TYPE_AMD, "MX29LV161T 1Mx16 TopB      (2MB)",
-   31, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x0020, 0x2249, size2MB, CMD_TYPE_AMD, "ST M29W160EB 1Mx16 BotB    (2MB)",
-   1, size16K, 2, size8K, 1, size32K, 31, size64K},
-  {0x0020, 0x22c4, size2MB, CMD_TYPE_AMD, "ST M29W160ET 1Mx16 TopB    (2MB)",
-   31, size64K, 1, size32K, 2, size8K, 1, size16K},
+  {0x0001, 0x22f9, size4MB, CMD_TYPE_AMD, "AMD 29lv320DB 2Mx16 BotB   (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+  {0x0001, 0x22f6, size4MB, CMD_TYPE_AMD, "AMD 29lv320DT 2Mx16 TopB   (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x0004, 0x22F9, size4MB, CMD_TYPE_AMD, "MBM29LV320BE 2Mx16 BotB    (4MB)",
+   1, size16K, 2, size8K, 1, size32K, 63, size64K},
+  {0x0004, 0x22F6, size4MB, CMD_TYPE_AMD, "MBM29LV320TE 2Mx16 TopB    (4MB)",
+   63, size64K, 1, size32K, 2, size8K, 1, size16K},
+  {0x00C2, 0x22A8, size4MB, CMD_TYPE_AMD, "MX29LV320AB 2Mx16 BotB     (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+  {0x00C2, 0x00A8, size4MB, CMD_TYPE_AMD, "MX29LV320AB 2Mx16 BotB     (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+  {0x00C2, 0x00A7, size4MB, CMD_TYPE_AMD, "MX29LV320AT 2Mx16 TopB     (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x00C2, 0x22A7, size4MB, CMD_TYPE_AMD, "MX29LV320AT 2Mx16 TopB     (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x0020, 0x22CB, size4MB, CMD_TYPE_AMD, "ST 29w320DB 2Mx16 BotB     (4MB)",
+   1, size16K, 2, size8K, 1, size32K, 63, size64K},
+  {0x0020, 0x22CA, size4MB, CMD_TYPE_AMD, "ST 29w320DT 2Mx16 TopB     (4MB)",
+   63, size64K, 1, size32K, 2, size8K, 1, size16K},
+
+  {0x00DA, 0x22BA, size4MB, CMD_TYPE_AMD, "W19B(L)320ST   2Mx16 TopB  (4MB)", 63, size64K, 8, size8K, 0, 0, 0, 0},	/* new */
+  {0x00DA, 0x222A, size4MB, CMD_TYPE_AMD, "W19B(L)320SB   2Mx16 BotB  (4MB)", 8, size8K, 63, size64K, 0, 0, 0, 0},	/* new */
+
+  {0x0020, 0x225C, size4MB, CMD_TYPE_AMD, "M29DW324DT 2Mx16 TopB      (4MB)", 63, size64K, 8, size8K, 0, 0, 0, 0},	/* new */
+  {0x0020, 0x225D, size4MB, CMD_TYPE_AMD, "M29DW324DB 2Mx16 BotB      (4MB)", 8, size8K, 63, size64K, 0, 0, 0, 0},	/* new */
+
+  {0x0098, 0x0057, size8MB, CMD_TYPE_AMD, "TC58FVM6T2A  4Mx16 TopB    (8MB)", 127, size64K, 8, size8K, 0, 0, 0, 0},	/* new */
+  {0x0098, 0x0058, size8MB, CMD_TYPE_AMD, "TC58FVM6B2A  4Mx16 BopB    (8MB)", 8, size8K, 127, size64K, 0, 0, 0, 0},	/* new */
+
+  {0x00EC, 0x22E0, size8MB, CMD_TYPE_AMD, "K8D6316UTM  4Mx16 TopB     (8MB)", 127, size64K, 8, size8K, 0, 0, 0, 0},	/* new */
+  {0x00EC, 0x22E2, size8MB, CMD_TYPE_AMD, "K8D6316UBM  4Mx16 BotB     (8MB)", 8, size8K, 127, size64K, 0, 0, 0, 0},	/* new */
+
+  /* BSC */
+  {0x0089, 0x8891, size2MB, CMD_TYPE_BSC, "Intel 28F160B3 1Mx16 BotB  (2MB)",
+   8, size8K, 31, size64K, 0, 0, 0, 0},
+  {0x0089, 0x8890, size2MB, CMD_TYPE_BSC, "Intel 28F160B3 1Mx16 TopB  (2MB)",
+   31, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x0089, 0x88C3, size2MB, CMD_TYPE_BSC, "Intel 28F160C3 1Mx16 BotB  (2MB)",
+   8, size8K, 31, size64K, 0, 0, 0, 0},
+  {0x0089, 0x88C2, size2MB, CMD_TYPE_BSC, "Intel 28F160C3 1Mx16 TopB  (2MB)",
+   31, size64K, 8, size8K, 0, 0, 0, 0},
+
+  {0x0089, 0x8897, size4MB, CMD_TYPE_BSC, "Intel 28F320B3 2Mx16 BotB  (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+  {0x0089, 0x8896, size4MB, CMD_TYPE_BSC, "Intel 28F320B3 2Mx16 TopB  (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x0089, 0x88C5, size4MB, CMD_TYPE_BSC, "Intel 28F320C3 2Mx16 BotB  (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+  {0x0089, 0x88C4, size4MB, CMD_TYPE_BSC, "Intel 28F320C3 2Mx16 TopB  (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x00b0, 0x00e3, size4MB, CMD_TYPE_BSC, "Sharp 28F320BJE 2Mx16 BotB (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+
+  {0x0089, 0x8899, size8MB, CMD_TYPE_BSC, "Intel 28F640B3 4Mx16 BotB  (8MB)",
+   8, size8K, 127, size64K, 0, 0, 0, 0},
+  {0x0089, 0x8898, size8MB, CMD_TYPE_BSC, "Intel 28F640B3 4Mx16 TopB  (8MB)",
+   127, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x0089, 0x88CD, size8MB, CMD_TYPE_BSC, "Intel 28F640C3 4Mx16 BotB  (8MB)",
+   8, size8K, 127, size64K, 0, 0, 0, 0},
+  {0x0089, 0x88CC, size8MB, CMD_TYPE_BSC, "Intel 28F640C3 4Mx16 TopB  (8MB)",
+   127, size64K, 8, size8K, 0, 0, 0, 0},
+
+  /* SCS */
+  {0x00b0, 0x00d0, size2MB, CMD_TYPE_SCS, "Intel 28F160S3/5 1Mx16     (2MB)",
+   32, size64K, 0, 0, 0, 0, 0, 0},
+
+  {0x0089, 0x0016, size4MB, CMD_TYPE_SCS, "Intel 28F320J3 2Mx16       (4MB)",
+   32, size128K, 0, 0, 0, 0, 0, 0},
+  {0x0089, 0x0014, size4MB, CMD_TYPE_SCS, "Intel 28F320J5 2Mx16       (4MB)",
+   32, size128K, 0, 0, 0, 0, 0, 0},
+  {0x00b0, 0x00d4, size4MB, CMD_TYPE_SCS, "Intel 28F320S3/5 2Mx16     (4MB)",
+   64, size64K, 0, 0, 0, 0, 0, 0},
+
+  {0x0089, 0x0017, size8MB, CMD_TYPE_SCS, "Intel 28F640J3 4Mx16       (8MB)",
+   64, size128K, 0, 0, 0, 0, 0, 0},
+  {0x0089, 0x0015, size8MB, CMD_TYPE_SCS, "Intel 28F640J5 4Mx16       (8MB)",
+   64, size128K, 0, 0, 0, 0, 0, 0},
+
+  {0x0089, 0x0018, size16MB, CMD_TYPE_SCS, "Intel 28F128J3 8Mx16      (16MB)",
+   128, size128K, 0, 0, 0, 0, 0, 0},
+
+  /* SST */
   {0x00BF, 0x234B, size4MB, CMD_TYPE_SST, "SST39VF1601 1Mx16 BotB     (2MB)",
    64, size32K, 0, 0, 0, 0, 0, 0},
   {0x00BF, 0x234A, size4MB, CMD_TYPE_SST, "SST39VF1602 1Mx16 TopB     (2MB)",
    64, size32K, 0, 0, 0, 0, 0, 0},
+
   {0x00BF, 0x235B, size4MB, CMD_TYPE_SST, "SST39VF3201 2Mx16 BotB     (4MB)",
    128, size32K, 0, 0, 0, 0, 0, 0},
   {0x00BF, 0x235A, size4MB, CMD_TYPE_SST, "SST39VF3202 2Mx16 TopB     (4MB)",
    128, size32K, 0, 0, 0, 0, 0, 0},
+  {0x00BF, 0x2783, size4MB, CMD_TYPE_SST, "SST39VF320 2Mx16           (4MB)",
+   64, size64K, 0, 0, 0, 0, 0, 0},
+
   {0x00BF, 0x236B, size4MB, CMD_TYPE_SST, "SST39VF6401 4Mx16 BotB     (8MB)",
    256, size32K, 0, 0, 0, 0, 0, 0},
   {0x00BF, 0x236A, size4MB, CMD_TYPE_SST, "SST39VF6402 4Mx16 TopB     (8MB)",
    256, size32K, 0, 0, 0, 0, 0, 0},
-  {0x00EC, 0x2275, size2MB, CMD_TYPE_AMD, "K8D1716UTC  1Mx16 TopB     (2MB)",
-   31, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x00EC, 0x2277, size2MB, CMD_TYPE_AMD, "K8D1716UBC  1Mx16 BotB     (2MB)",
-   8, size8K, 31, size64K, 0, 0, 0, 0},
-  {0x00C2, 0x22DA, size1MB, CMD_TYPE_AMD, "MX29LV800BTC 512kx16 TopB  (1MB)",
-   15, size32K, 1, size16K, 2, size4K, 1, size8K},
-  {0x00C2, 0x225B, size1MB, CMD_TYPE_AMD, "MX29LV800BTC 512kx16 BotB  (1MB)",
-   1, size8K, 2, size4K, 1, size16K, 15, size32K},
-  {0x00EC, 0x22A0, size2MB, CMD_TYPE_AMD, "K8D3216UTC  2Mx16 TopB     (4MB)",
-   63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x00EC, 0x22A2, size2MB, CMD_TYPE_AMD, "K8D3216UBC  2Mx16 BotB     (4MB)",
-   8, size8K, 63, size64K, 0, 0, 0, 0},
   {0x00BF, 0x236D, size4MB, CMD_TYPE_SST, "SST39VF6401B 4Mx16 BotB    (8MB)",
    256, size32K, 0, 0, 0, 0, 0, 0},
   {0x00BF, 0x236C, size4MB, CMD_TYPE_SST, "SST39VF6402B 4Mx16 TopB    (8MB)",
    256, size32K, 0, 0, 0, 0, 0, 0},
+
+//  See Spansion hack details for reasoning for the unusual vendid
+  {0x017E, 0x1A00, size4MB, CMD_TYPE_AMD, "Spansion S29GL032M BotB    (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+  {0x017E, 0x1A01, size4MB, CMD_TYPE_AMD, "Spansion S29GL032M TopB    (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x017E, 0x1000, size8MB, CMD_TYPE_AMD, "Spansion S29GL064M BotB    (8MB)",
+   8, size8K, 127, size64K, 0, 0, 0, 0},
+  {0x017E, 0x1001, size8MB, CMD_TYPE_AMD, "Spansion S29GL064M TopB    (8MB)",
+   127, size64K, 8, size8K, 0, 0, 0, 0},
 
   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 };
@@ -588,7 +464,7 @@ clockin (int tms, int tdi)
 #endif
 
   data ^= 0x80;
-  data >>= TDO;
+  data >>= wiggler ? WTDO : TDO;
   data &= 1;
 
   return data;
@@ -677,6 +553,7 @@ MyData (unsigned int value)
     printf ("%d", (value >> (31 - i)) & 1);
 //    printf(" (%08X)\n", value);
 }
+
 
 void
 ShowData (unsigned int value)
@@ -1045,6 +922,7 @@ chip_detect (void)
       printf ("Instruction Length set to %d\n\n", instruction_length);
       printf ("CPU Chip ID: ");
       ShowData (id);
+
       printf ("*** CHIP DETECTION OVERRIDDEN ***\n\n");
       return;
     }
@@ -1111,12 +989,22 @@ check_ejtag_features ()
     printf ("2.5\n");
   else if (ejtag_version == 2)
     printf ("2.6\n");
+  else if (ejtag_version == 3)
+    printf ("3.1\n");
   else
     printf ("Unknown (%d is a reserved value)\n", ejtag_version);
 
   // EJTAG DMA Support
   USE_DMA = !(features & (1 << 14));
   printf ("    - EJTAG DMA Support ... : %s\n", USE_DMA ? "Yes" : "No");
+  printf ("    - EJTAG Implementation flags:%s%s%s%s%s%s%s\n",
+	  (features & (1 << 28)) ? " R3k" : " R4k",
+	  (features & (1 << 24)) ? " DINTsup" : "",
+	  (features & (1 << 22)) ? " ASID_8" : "",
+	  (features & (1 << 21)) ? " ASID_6" : "",
+	  (features & (1 << 16)) ? " MIPS16" : "",
+	  (features & (1 << 14)) ? " NoDMA" : "",
+	  (features & (1)) ? " MIPS64" : " MIPS32");
 
   if (force_dma)
     {
@@ -1346,9 +1234,24 @@ identify_flash_part (void)
   cmd_type = 0;
   strcpy (flash_part, "");
 
-  // Funky AMD Chip
+  /*     Spansion ID workaround (kb1klk) 30 Dec 2007
+
+     Vendor ID altered to 017E to avoid ambiguity in lookups.
+     Spansion uses vend 0001 dev 227E for numerous chips.
+     This code reads device SubID from its address and combine this into
+     the unique devid that will be used in the lookup table. */
+
   if (((vendid & 0x00ff) == 0x0001) && (devid == 0x227E))
-    devid = ejtag_read_h (FLASH_MEMORY_START + 0x1E);	// Get real devid
+    {
+      unsigned int devsubid_m, devsubid_l;
+      vendid = 0x017E;
+      devsubid_m = 0x00ff & ejtag_read_h (FLASH_MEMORY_START + 0x1C);	// sub ID step 1
+      devsubid_l = 0x00ff & ejtag_read_h (FLASH_MEMORY_START + 0x1E);	// sub ID step 2
+      devid = (0x0100 * devsubid_m) + (0x0000 + devsubid_l);
+    }
+
+// Funky AMD Chip
+//  if (((vendid & 0x00ff) == 0x0001) && (devid == 0x227E))  devid = ejtag_read_h(FLASH_MEMORY_START+0x1E);  // Get real devid
 
 //    if (((vendid & 0x00ff) == 0x007f) && (devid == 0x22c4 || devid == 0x2249))
 //    bypass = 1;
@@ -1879,9 +1782,9 @@ main (int argc, char **argv)
   int j;
 
   printf ("\n");
-  printf ("=================================================\n");
-  printf ("WRT54G/GS EJTAG Debrick Utility v4.8-Tornado-MOD \n");
-  printf ("=================================================\n\n");
+  printf ("========================================\n");
+  printf (" EJTAG Debrick Utility v2.0-Tornado-MOD \n");
+  printf ("========================================\n\n");
 
   if (argc < 2)
     {
