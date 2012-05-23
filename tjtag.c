@@ -1,9 +1,9 @@
 // **************************************************************************
 //
-//  Tjtag.c - EJTAG Debrick Utility v2 - Tornado MOD
+//  tjtag.c - EJTAG Debrick Utility v2.1.4 - Tornado MOD
 //
 // Default is Compile for Linux (both #define's below should be commented out)
-#define WINDOWS_VERSION		// uncomment only this for Windows Compile / MS Visual C Compiler
+//#define WINDOWS_VERSION   // uncomment only this for Windows Compile / MS Visual C Compiler
 //#define __FreeBSD__       // uncomment only this for FreeBSD
 
 #ifdef WINDOWS_VERSION
@@ -48,6 +48,7 @@ int silent_mode = 0;
 int skipdetect = 0;
 int instrlen = 0;
 int wiggler = 0;
+int speedtouch = 0;
 
 
 char flash_part[128];
@@ -67,6 +68,7 @@ unsigned int devid;
 
 unsigned int data_register;
 unsigned int address_register;
+unsigned int proc_id;
 
 int USE_DMA = 0;
 int ejtag_version = 0;
@@ -94,10 +96,15 @@ processor_chip_type processor_chip_list[] = {
   {0x1536517F, 8, "Broadcom BCM5365 Rev 1 CPU"},	// Eko....ASUS WL 500 G Deluxe
   {0x0634517F, 5, "Broadcom BCM6345 Rev 1 CPU"},	// BCM6345 Not Completely Verified Yet
   {0x0634817F, 5, "Broadcom BCM6348 Rev 1 CPU"},
+  {0x0633817F, 5, "Broadcom BCM6338 Rev 1 CPU"},	//Speedtouch
+  {0x1432117F, 5, "Broadcom BCM4321 RADIO STOP"},	//Radio JP3 on a WRT300N V1.1
   {0x0000100F, 5, "TI AR7WRD TNETD7300GDU Rev 1 CPU"},	// TI AR7WRD Only Partially Verified
   {0x102002E1, 5, "BRECIS MSP2007-CA-A1 CPU"},	// BRECIS chip - Not Completely Verified Yet
   {0x0B52D02F, 5, "TI TNETV1060GDW CPU"},	// Fox WRTP54G
-  {0, 0, 0}
+  {0x00217067, 5, "Linkstation 2 with RISC K4C chip"},	//Not verified
+  {0x00000001, 5, "Atheros AR531X/231X CPU"},	//WHR-HP-AG108
+  {
+   0, 0, 0}
 };
 
 
@@ -116,27 +123,39 @@ flash_area_type flash_area_list[] = {
   //---------   ----------     -----------  ------------
   {size1MB, "CFE", 0x1FC00000, 0x40000},
   {size2MB, "CFE", 0x1FC00000, 0x40000},
-  {size4MB, "CFE", 0x1FC00000, 0x40000},
+  {size4MB, "CFE", 0x1FC00000, 0x40000},	//256Kb
   {size8MB, "CFE", 0x1C000000, 0x40000},
   {size16MB, "CFE", 0x1C000000, 0x40000},
 
+  {size1MB, "CFE128", 0x1FC00000, 0x20000},
+  {size2MB, "CFE128", 0x1FC00000, 0x20000},
+  {size4MB, "CFE128", 0x1FC00000, 0x20000},	//128Kb
+  {size8MB, "CFE128", 0x1C000000, 0x20000},
+  {size16MB, "CFE128", 0x1C000000, 0x20000},
+
+  {size1MB, "CF1", 0x1FC00000, 0x2000},
+  {size2MB, "CF1", 0x1FC00000, 0x2000},
+  {size4MB, "CF1", 0x1FC00000, 0x2000},	//8Kb
+  {size8MB, "CF1", 0x1C000000, 0x2000},
+  {size16MB, "CF1", 0x1C000000, 0x2000},
+
   {size1MB, "KERNEL", 0x1FC40000, 0xB0000},
   {size2MB, "KERNEL", 0x1FC40000, 0x1B0000},
-  {size4MB, "KERNEL", 0x1FC40000, 0x3B0000},
+  {size4MB, "KERNEL", 0x1FC40000, 0x3B0000},	//3776Kb
   {size8MB, "KERNEL", 0x1C040000, 0x7A0000},
   {size16MB, "KERNEL", 0x1C040000, 0x7A0000},
 
   {size1MB, "NVRAM", 0x1FCF0000, 0x10000},
   {size2MB, "NVRAM", 0x1FDF0000, 0x10000},
-  {size4MB, "NVRAM", 0x1FFF0000, 0x10000},
+  {size4MB, "NVRAM", 0x1FFF0000, 0x10000},	//64kb
   {size8MB, "NVRAM", 0x1C7E0000, 0x20000},
   {size16MB, "NVRAM", 0x1C7E0000, 0x20000},
 
   {size1MB, "WHOLEFLASH", 0x1FC00000, 0x100000},
   {size2MB, "WHOLEFLASH", 0x1FC00000, 0x200000},
-  {size4MB, "WHOLEFLASH", 0x1FC00000, 0x400000},
+  {size4MB, "WHOLEFLASH", 0x1FC00000, 0x400000},	//4Mb
   {size8MB, "WHOLEFLASH", 0x1C000000, 0x800000},
-  {size16MB, "WHOLEFLASH", 0x1C000000, 0x800000},
+  {size16MB, "WHOLEFLASH", 0x1C000000, 0x1000000},
 
   {size1MB, "BSP", 0x1FC00000, 0x50000},
   {size2MB, "BSP", 0x1FC00000, 0x50000},
@@ -164,8 +183,6 @@ typedef struct _flash_chip_type
   unsigned int region3_size;	// Region 3 block size
   unsigned int region4_num;	// Region 4 block count
   unsigned int region4_size;	// Region 4 block size
-  unsigned int region5_num;	// Region 5 block count
-  unsigned int region5_size;	// Region 5 block size
 } flash_chip_type;
 
 
@@ -176,21 +193,19 @@ flash_chip_type flash_chip_list[] = {
   {0x00C2, 0x225B, size1MB, CMD_TYPE_AMD, "MX29LV800BTC 512kx16 BotB  (1MB)",
    1, size8K, 2, size4K, 1, size16K, 15, size32K},
 
-  {0x0001, 0x2249, size2MB, CMD_TYPE_AMD, "AMD 29lv160DB 1Mx16 BotB   (2MB)",
-   1, size16K, 2, size8K, 1, size32K, 31, size64K},
+  {0x0001, 0x2249, size2MB, CMD_TYPE_AMD, "AMD 29lv160DB 1Mx16 BotB   (2MB)", 1, size16K, 2, size8K, 1, size32K, 31, size64K},	/* bypass */
   {0x0001, 0x22c4, size2MB, CMD_TYPE_AMD, "AMD 29lv160DT 1Mx16 TopB   (2MB)",
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x007f, 0x2249, size2MB, CMD_TYPE_AMD, "EON EN29LV160A 1Mx16 BotB  (2MB)",
-   1, size16K, 2, size8K, 1, size32K, 31, size64K},
+  {0x007f, 0x2249, size2MB, CMD_TYPE_AMD, "EON EN29LV160A 1Mx16 BotB  (2MB)", 1, size16K, 2, size8K, 1, size32K, 31, size64K},	/* bypass */
   {0x007f, 0x22C4, size2MB, CMD_TYPE_AMD, "EON EN29LV160A 1Mx16 TopB  (2MB)",
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
   {0x0004, 0x2249, size2MB, CMD_TYPE_AMD, "MBM29LV160B 1Mx16 BotB     (2MB)",
    1, size16K, 2, size8K, 1, size32K, 31, size64K},
   {0x0004, 0x22c4, size2MB, CMD_TYPE_AMD, "MBM29LV160T 1Mx16 TopB     (2MB)",
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x00C2, 0x2249, size2MB, CMD_TYPE_AMD, "MX29LV161B 1Mx16 BotB      (2MB)",
+  {0x00C2, 0x2249, size2MB, CMD_TYPE_AMD, "MX29LV160CB 1Mx16 BotB     (2MB)",
    1, size16K, 2, size8K, 1, size32K, 31, size64K},
-  {0x00C2, 0x22c4, size2MB, CMD_TYPE_AMD, "MX29LV161T 1Mx16 TopB      (2MB)",
+  {0x00C2, 0x22c4, size2MB, CMD_TYPE_AMD, "MX29LV160CT 1Mx16 TopB     (2MB)",
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
   {0x00EC, 0x2275, size2MB, CMD_TYPE_AMD, "K8D1716UTC  1Mx16 TopB     (2MB)",
    31, size64K, 8, size8K, 0, 0, 0, 0},
@@ -233,13 +248,13 @@ flash_chip_type flash_chip_list[] = {
    1, size16K, 2, size8K, 1, size32K, 63, size64K},
   {0x0004, 0x22F6, size4MB, CMD_TYPE_AMD, "MBM29LV320TE 2Mx16 TopB    (4MB)",
    63, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x00C2, 0x22A8, size4MB, CMD_TYPE_AMD, "MX29LV320AB 2Mx16 BotB     (4MB)",
+  {0x00C2, 0x22A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)",
    8, size8K, 63, size64K, 0, 0, 0, 0},
-  {0x00C2, 0x00A8, size4MB, CMD_TYPE_AMD, "MX29LV320AB 2Mx16 BotB     (4MB)",
+  {0x00C2, 0x00A8, size4MB, CMD_TYPE_AMD, "MX29LV320B 2Mx16 BotB      (4MB)",
    8, size8K, 63, size64K, 0, 0, 0, 0},
-  {0x00C2, 0x00A7, size4MB, CMD_TYPE_AMD, "MX29LV320AT 2Mx16 TopB     (4MB)",
+  {0x00C2, 0x00A7, size4MB, CMD_TYPE_AMD, "MX29LV320T 2Mx16 TopB      (4MB)",
    63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x00C2, 0x22A7, size4MB, CMD_TYPE_AMD, "MX29LV320AT 2Mx16 TopB     (4MB)",
+  {0x00C2, 0x22A7, size4MB, CMD_TYPE_AMD, "MX29LV320T 2Mx16 TopB      (4MB)",
    63, size64K, 8, size8K, 0, 0, 0, 0},
   {0x0020, 0x22CB, size4MB, CMD_TYPE_AMD, "ST 29w320DB 2Mx16 BotB     (4MB)",
    1, size16K, 2, size8K, 1, size32K, 63, size64K},
@@ -248,6 +263,8 @@ flash_chip_type flash_chip_list[] = {
 
   {0x00DA, 0x22BA, size4MB, CMD_TYPE_AMD, "W19B(L)320ST   2Mx16 TopB  (4MB)", 63, size64K, 8, size8K, 0, 0, 0, 0},	/* new */
   {0x00DA, 0x222A, size4MB, CMD_TYPE_AMD, "W19B(L)320SB   2Mx16 BotB  (4MB)", 8, size8K, 63, size64K, 0, 0, 0, 0},	/* new */
+  {0x22DA, 0x222A, size4MB, CMD_TYPE_AMD, "W19B(L)320SB   2Mx16 BotB  (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
 
   {0x0020, 0x225C, size4MB, CMD_TYPE_AMD, "M29DW324DT 2Mx16 TopB      (4MB)", 63, size64K, 8, size8K, 0, 0, 0, 0},	/* new */
   {0x0020, 0x225D, size4MB, CMD_TYPE_AMD, "M29DW324DB 2Mx16 BotB      (4MB)", 8, size8K, 63, size64K, 0, 0, 0, 0},	/* new */
@@ -308,26 +325,49 @@ flash_chip_type flash_chip_list[] = {
    128, size128K, 0, 0, 0, 0, 0, 0},
 
   /* SST */
-  {0x00BF, 0x234B, size4MB, CMD_TYPE_SST, "SST39VF1601 1Mx16 BotB     (2MB)",
-   64, size32K, 0, 0, 0, 0, 0, 0},
-  {0x00BF, 0x234A, size4MB, CMD_TYPE_SST, "SST39VF1602 1Mx16 TopB     (2MB)",
-   64, size32K, 0, 0, 0, 0, 0, 0},
+// WRONG
+//  { 0x00BF, 0x234B, size2MB, CMD_TYPE_SST, "SST39VF1601 1Mx16 BotB     (2MB)"   ,64,size32K,    0,0,          0,0,        0,0        },
+//  { 0x00BF, 0x234A, size2MB, CMD_TYPE_SST, "SST39VF1602 1Mx16 TopB     (2MB)"   ,64,size32K,    0,0,          0,0,        0,0        },
 
+// Correction
+  {0x00BF, 0x234B, size2MB, CMD_TYPE_SST, "SST39VF1601 1Mx16 BotB     (2MB)",
+   8, size8K, 31, size64K, 0, 0, 0, 0},
+  {0x00BF, 0x234A, size2MB, CMD_TYPE_SST, "SST39VF1602 1Mx16 TopB     (2MB)",
+   31, size64K, 8, size8K, 0, 0, 0, 0},
+
+
+// WRONG
+//  { 0x00BF, 0x235B, size4MB, CMD_TYPE_SST, "SST39VF3201 2Mx16 BotB     (4MB)"   ,128,size32K,   0,0,          0,0,        0,0        },
+//  { 0x00BF, 0x235A, size4MB, CMD_TYPE_SST, "SST39VF3202 2Mx16 TopB     (4MB)"   ,128,size32K,   0,0,          0,0,        0,0        },
+
+// Correction
   {0x00BF, 0x235B, size4MB, CMD_TYPE_SST, "SST39VF3201 2Mx16 BotB     (4MB)",
-   128, size32K, 0, 0, 0, 0, 0, 0},
+   8, size8K, 63, size64K, 0, 0, 0, 0},
   {0x00BF, 0x235A, size4MB, CMD_TYPE_SST, "SST39VF3202 2Mx16 TopB     (4MB)",
-   128, size32K, 0, 0, 0, 0, 0, 0},
-  {0x00BF, 0x2783, size4MB, CMD_TYPE_SST, "SST39VF320 2Mx16           (4MB)",
-   64, size64K, 0, 0, 0, 0, 0, 0},
+   63, size64K, 8, size8K, 0, 0, 0, 0},
 
-  {0x00BF, 0x236B, size4MB, CMD_TYPE_SST, "SST39VF6401 4Mx16 BotB     (8MB)",
-   256, size32K, 0, 0, 0, 0, 0, 0},
-  {0x00BF, 0x236A, size4MB, CMD_TYPE_SST, "SST39VF6402 4Mx16 TopB     (8MB)",
-   256, size32K, 0, 0, 0, 0, 0, 0},
-  {0x00BF, 0x236D, size4MB, CMD_TYPE_SST, "SST39VF6401B 4Mx16 BotB    (8MB)",
-   256, size32K, 0, 0, 0, 0, 0, 0},
-  {0x00BF, 0x236C, size4MB, CMD_TYPE_SST, "SST39VF6402B 4Mx16 TopB    (8MB)",
-   256, size32K, 0, 0, 0, 0, 0, 0},
+// Check this
+//  { 0x00BF, 0x2783, size4MB, CMD_TYPE_SST, "SST39VF320 2Mx16           (4MB)"   ,64,size64K,   0,0,          0,0,        0,0        },
+
+// WRONG
+//  { 0x00BF, 0x236B, size8MB, CMD_TYPE_SST, "SST39VF6401 4Mx16 BotB     (8MB)"   ,128,size64K,   0,0,          0,0,        0,0        },
+//  { 0x00BF, 0x236A, size8MB, CMD_TYPE_SST, "SST39VF6402 4Mx16 TopB     (8MB)"   ,128,size64K,   0,0,          0,0,        0,0        },
+
+// Correction
+  {0x00BF, 0x236B, size8MB, CMD_TYPE_SST, "SST39VF6401 4Mx16 BotB     (8MB)",
+   8, size8K, 127, size64K, 0, 0, 0, 0},
+  {0x00BF, 0x236A, size8MB, CMD_TYPE_SST, "SST39VF6402 4Mx16 TopB     (8MB)",
+   127, size64K, 8, size8K, 0, 0, 0, 0},
+
+// WRONG
+//  { 0x00BF, 0x236D, size8MB, CMD_TYPE_SST, "SST39VF6401B 4Mx16 BotB    (8MB)"   ,128,size64K,   0,0,          0,0,        0,0        },
+//  { 0x00BF, 0x236C, size8MB, CMD_TYPE_SST, "SST39VF6402B 4Mx16 TopB    (8MB)"   ,128,size64K,   0,0,          0,0,        0,0        },
+
+// Correction
+  {0x00BF, 0x236D, size8MB, CMD_TYPE_SST, "SST39VF6401B 4Mx16 BotB    (8MB)",
+   8, size8K, 127, size64K, 0, 0, 0, 0},
+  {0x00BF, 0x236C, size8MB, CMD_TYPE_SST, "SST39VF6402B 4Mx16 TopB    (8MB)",
+   127, size64K, 8, size8K, 0, 0, 0, 0},
 
 //  See Spansion hack details for reasoning for the unusual vendid
   {0x017E, 0x1A00, size4MB, CMD_TYPE_AMD, "Spansion S29GL032M BotB    (4MB)",
@@ -338,6 +378,16 @@ flash_chip_type flash_chip_list[] = {
    8, size8K, 127, size64K, 0, 0, 0, 0},
   {0x017E, 0x1001, size8MB, CMD_TYPE_AMD, "Spansion S29GL064M TopB    (8MB)",
    127, size64K, 8, size8K, 0, 0, 0, 0},
+
+// Winbond 3-stage ID chips
+  {0xDA7E, 0x0A00, size4MB, CMD_TYPE_AMD, "Winbond W19B320AB BotB     (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
+  {0xDA7E, 0x0A01, size4MB, CMD_TYPE_AMD, "Winbond W19B320AT TopB     (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+// EON
+  {0x007f, 0x22F9, size4MB, CMD_TYPE_AMD, "EON EN29LV320 2Mx16 BotB   (4MB)", 63, size64K, 8, size8K, 0, 0, 0, 0},	/* wrt54gl v1.1 */
+  {0x007f, 0x22F6, size4MB, CMD_TYPE_AMD, "EON EN29LV320 2Mx16 TopB   (4MB)", 8, size8K, 63, size64K, 0, 0, 0, 0},	/* bypass */
+
 
   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 };
@@ -442,6 +492,7 @@ clockin (int tms, int tdi)
 #ifdef WINDOWS_VERSION		// ---- Compiler Specific Code ----
   _outp (0x378, data);
 #else
+
   ioctl (pfd, PPWDATA, &data);
 #endif
 
@@ -679,7 +730,7 @@ begin_ejtag_dma_read_h:
 		data);
     }
 
-  // Handle the bigendian/littleendian
+  // Handle the bigendian / littleendian
   if (addr & 0x2)
     data = (data >> 16) & 0xffff;
   else
@@ -922,7 +973,6 @@ chip_detect (void)
       printf ("Instruction Length set to %d\n\n", instruction_length);
       printf ("CPU Chip ID: ");
       ShowData (id);
-
       printf ("*** CHIP DETECTION OVERRIDDEN ***\n\n");
       return;
     }
@@ -946,6 +996,8 @@ chip_detect (void)
 	      ShowData (id);
 	      printf ("*** Found a %s chip ***\n\n",
 		      processor_chip->chip_descr);
+	      proc_id = id;
+
 	      return;
 	    }
 	  processor_chip++;
@@ -959,8 +1011,8 @@ chip_detect (void)
   printf ("*** Unknown or NO CPU Chip ID Detected ***\n\n");
 
   printf ("*** Possible Causes:\n");
-  printf ("    1) WRT54G/GS is not Connected.\n");
-  printf ("    2) WRT54G/GS is not Powered On.\n");
+  printf ("    1) Device is not Connected.\n");
+  printf ("    2) Device is not Powered On.\n");
   printf ("    3) Improper JTAG Cable.\n");
   printf ("    4) Unrecognized CPU Chip ID.\n");
 
@@ -1172,8 +1224,10 @@ run_flash (char *filename, unsigned int start, unsigned int length)
       else
 	sflash_write_word (addr, data);	// Otherwise we gotta flash it all
 
+      // original  if (silent_mode)  printf("%4d%%   bytes = %d\r", percent_complete, counter);
       if (silent_mode)
-	printf ("%4d%%   bytes = %d\r", percent_complete, counter);
+	printf ("%4d%%   bytes = %d (%08x)@(%08x)=%08x\r", percent_complete,
+		counter, counter, addr, data);
       else
 	printf ("%08x%c", data, (addr & 0xF) == 0xC ? '\n' : ' ');
 
@@ -1250,11 +1304,22 @@ identify_flash_part (void)
       devid = (0x0100 * devsubid_m) + (0x0000 + devsubid_l);
     }
 
+
+  /* WinBond extended ID query - 27 Jan 2008 */
+
+  if (((vendid & 0x00ff) == 0x00DA) && ((devid & 0x00ff) == 0x007E))
+    {
+      unsigned int devsubid_m, devsubid_l;
+      vendid = 0xDA7E;
+      devsubid_m = 0x00ff & ejtag_read_h (FLASH_MEMORY_START + 0x1C);	// sub ID step 1
+      devsubid_l = 0x00ff & ejtag_read_h (FLASH_MEMORY_START + 0x1E);	// sub ID step 2
+      devid = (0x0100 * devsubid_m) + (0x0000 + devsubid_l);
+    }
+
 // Funky AMD Chip
 //  if (((vendid & 0x00ff) == 0x0001) && (devid == 0x227E))  devid = ejtag_read_h(FLASH_MEMORY_START+0x1E);  // Get real devid
 
-//    if (((vendid & 0x00ff) == 0x007f) && (devid == 0x22c4 || devid == 0x2249))
-//    bypass = 1;
+
 
   while (flash_chip->vendid)
     {
@@ -1298,8 +1363,6 @@ identify_flash_part (void)
 	    define_block (flash_chip->region3_num, flash_chip->region3_size);
 	  if (flash_chip->region4_num)
 	    define_block (flash_chip->region4_num, flash_chip->region4_size);
-	  if (flash_chip->region5_num)
-	    define_block (flash_chip->region5_num, flash_chip->region5_size);
 
 	  sflash_reset ();
 
@@ -1381,6 +1444,8 @@ sflash_probe (void)
   else
     FLASH_MEMORY_START = 0x1FC00000;
 
+
+
   printf ("\nProbing Flash at (Flash Window: 0x%08x) ... ",
 	  FLASH_MEMORY_START);
 
@@ -1395,12 +1460,16 @@ again:
 
       cmd_type = CMD_TYPE_AMD;
       sflash_reset ();
+
       ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
       ejtag_write_h (FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
       ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00900090);
       vendid = ejtag_read_h (FLASH_MEMORY_START);
       devid = ejtag_read_h (FLASH_MEMORY_START + 2);
+//      printf("\nVENDID-A 0x%08X\n", vendid);
+//      printf("DEVID-A  0x%08X\n", devid);
       identify_flash_part ();
+
 
     }
 
@@ -1414,6 +1483,9 @@ again:
       ejtag_write_h (FLASH_MEMORY_START + (0x5555 << 1), 0x00900090);
       vendid = ejtag_read_h (FLASH_MEMORY_START);
       devid = ejtag_read_h (FLASH_MEMORY_START + 2);
+//      printf("\nVENDID-S 0x%08X\n", vendid);
+//      printf("DEVID-S  0x%08X\n", devid);
+
       identify_flash_part ();
     }
 
@@ -1425,6 +1497,9 @@ again:
       ejtag_write_h (FLASH_MEMORY_START, 0x00900090);
       vendid = ejtag_read_h (FLASH_MEMORY_START);
       devid = ejtag_read_h (FLASH_MEMORY_START + 2);
+//      printf("\nVENDID-B 0x%08X\n", vendid);
+//      printf("DEVID-B  0x%08X\n", devid);
+
       identify_flash_part ();
     }
 
@@ -1548,6 +1623,7 @@ sflash_erase_block (unsigned int addr)
       ejtag_write_h (addr, 0x00500050);	// Clear Status Command
       ejtag_write_h (addr, 0x00600060);	// Unlock Flash Block Command
       ejtag_write_h (addr, 0x00D000D0);	// Confirm Command
+      ejtag_write_h (addr, 0x00700070);
 
       // Wait for Unlock Completion
       sflash_poll (addr, STATUS_READY);
@@ -1556,6 +1632,7 @@ sflash_erase_block (unsigned int addr)
       ejtag_write_h (addr, 0x00500050);	// Clear Status Command
       ejtag_write_h (addr, 0x00200020);	// Block Erase Command
       ejtag_write_h (addr, 0x00D000D0);	// Confirm Command
+      ejtag_write_h (addr, 0x00700070);
 
       // Wait for Erase Completion
       sflash_poll (addr, STATUS_READY);
@@ -1587,8 +1664,7 @@ sflash_reset (void)
 void
 sflash_write_word (unsigned int addr, unsigned int data)
 {
-  unsigned int data_lo, data_hi, dbg;
-  dbg = 1;
+  unsigned int data_lo, data_hi;
 
   if (USE_DMA)
     {
@@ -1600,23 +1676,63 @@ sflash_write_word (unsigned int addr, unsigned int data)
   else
     {
       // PrAcc Does Not
+      // Speedtouch does not accept flashing with DMA, so you have to use /nodma
+
       data_lo = (data & 0xFFFF);
       data_hi = ((data >> 16) & 0xFFFF);
+
     }
 
   if (cmd_type == CMD_TYPE_AMD)
     {
       if (bypass)
 	{
-	  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
+	  if (proc_id == 0x00000001)
+	    {
+	      ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
+	      ejtag_write_h (addr + 2, data_lo);
+	      tnano (100);
+
+
+	      ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
+	      ejtag_write_h (addr, data_hi);
+	      tnano (100);
+	    }
+	  else
+	    ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
 	  ejtag_write_h (addr, data_lo);
 	  tnano (100);
+
 
 	  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
 	  ejtag_write_h (addr + 2, data_hi);
 	  tnano (100);
+
+
 	}
 
+      else
+       if (speedtouch || proc_id == 0x00000001)
+	{
+	  // Speedtouch uses a different flash address pattern.
+	  // Handle Half Of Word
+	  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
+	  ejtag_write_h (FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
+	  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
+	  ejtag_write_h (addr + 2, data_lo);
+
+	  // Wait for Completion
+	  sflash_poll (addr, (data & 0xffff));
+
+	  // Now Handle Other Half Of Word
+	  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
+	  ejtag_write_h (FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
+	  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
+	  ejtag_write_h (addr, data_hi);
+
+	  // Wait for Completion
+	  sflash_poll (addr + 2, ((data >> 16) & 0xffff));
+	}
       else
 	{
 	  ejtag_write_h (FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
@@ -1626,7 +1742,6 @@ sflash_write_word (unsigned int addr, unsigned int data)
 
 	  // Wait for Completion
 	  sflash_poll (addr, (data & 0xffff));
-
 
 	  // Now Handle Other Half Of Word
 	  ejtag_write_h (FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
@@ -1711,7 +1826,7 @@ show_usage (void)
     (" USAGE: tjtag [parameter] </noreset> </noemw> </nocwd> </nobreak> </noerase>\n"
      "                      </notimestamp> </dma> </nodma>\n"
      "                      <start:XXXXXXXX> </length:XXXXXXXX>\n"
-     "                      </silent> </skipdetect> </instrlen:XX> </fc:XX> /bypass\n\n"
+     "                      </silent> </skipdetect> </instrlen:XX> </fc:XX> /bypass /st5\n\n"
      "            Required Parameter\n" "            ------------------\n"
      "            -backup:cfe\n" "            -backup:nvram\n"
      "            -backup:kernel\n" "            -backup:wholeflash\n"
@@ -1739,7 +1854,8 @@ show_usage (void)
      "            /skipdetect ........ skip auto detection of CPU Chip ID\n"
      "            /instrlen:XX ....... set instruction length manually\n"
      "            /wiggler ........... use wiggler cable\n"
-     "            /bypass ............ Unlock Bypass command & disable polling\n\n"
+     "            /bypass ............ Unlock Bypass command & disable polling\n"
+     "            /st5 ............... Use Speedtouch ST5xx flash routines instead of WRT routines\n\n"
      "            /fc:XX = Optional (Manual) Flash Chip Selection\n"
      "            -----------------------------------------------\n");
 
@@ -1782,9 +1898,9 @@ main (int argc, char **argv)
   int j;
 
   printf ("\n");
-  printf ("========================================\n");
-  printf (" EJTAG Debrick Utility v2.0-Tornado-MOD \n");
-  printf ("========================================\n\n");
+  printf ("==========================================\n");
+  printf (" EJTAG Debrick Utility v2.1.4-Tornado-MOD \n");
+  printf ("==========================================\n\n");
 
   if (argc < 2)
     {
@@ -1800,6 +1916,16 @@ main (int argc, char **argv)
     {
       run_option = 1;
       strcpy (AREA_NAME, "CFE");
+    }
+  if (strcasecmp (choice, "-backup:cf1") == 0)
+    {
+      run_option = 1;
+      strcpy (AREA_NAME, "CF1");
+    }
+  if (strcasecmp (choice, "-backup:cfe128") == 0)
+    {
+      run_option = 1;
+      strcpy (AREA_NAME, "CFE128");
     }
   if (strcasecmp (choice, "-backup:nvram") == 0)
     {
@@ -1833,6 +1959,16 @@ main (int argc, char **argv)
       run_option = 2;
       strcpy (AREA_NAME, "CFE");
     }
+  if (strcasecmp (choice, "-erase:cf1") == 0)
+    {
+      run_option = 2;
+      strcpy (AREA_NAME, "CF1");
+    }
+  if (strcasecmp (choice, "-erase:cfe128") == 0)
+    {
+      run_option = 2;
+      strcpy (AREA_NAME, "CFE128");
+    }
   if (strcasecmp (choice, "-erase:nvram") == 0)
     {
       run_option = 2;
@@ -1864,6 +2000,16 @@ main (int argc, char **argv)
     {
       run_option = 3;
       strcpy (AREA_NAME, "CFE");
+    }
+  if (strcasecmp (choice, "-flash:cf1") == 0)
+    {
+      run_option = 3;
+      strcpy (AREA_NAME, "CF1");
+    }
+  if (strcasecmp (choice, "-flash:cfe128") == 0)
+    {
+      run_option = 3;
+      strcpy (AREA_NAME, "CFE128");
     }
   if (strcasecmp (choice, "-flash:nvram") == 0)
     {
@@ -1955,6 +2101,8 @@ main (int argc, char **argv)
 	    instrlen = strtoul (((char *) choice + 10), NULL, 10);
 	  else if (strcasecmp (choice, "/wiggler") == 0)
 	    wiggler = 1;
+	  else if (strcasecmp (choice, "/st5") == 0)
+	    speedtouch = 1;
 	  else
 	    {
 	      show_usage ();
@@ -2044,18 +2192,45 @@ main (int argc, char **argv)
   else
     printf ("Skipped\n");
 
-
   // ----------------------------------
   // Clear Watchdog
   // ----------------------------------
+
   printf ("Clearing Watchdog ... ");
+
   if (issue_watchdog)
     {
-      ejtag_write (0xb8000080, 0);
-      printf ("Done\n");
+      if (proc_id == 0x00000001)
+	{
+	  ejtag_write (0xbc00300, 0xffffffff);
+
+	  ejtag_write (0xbc003008, 0);	// Atheros AR5312
+
+	  ejtag_write (0xbc004000, 0x05551212);
+
+	  printf ("Done");
+	}
+      else
+
+	ejtag_write (0xb8000080, 0);
+
+
+      printf ("Done");
     }
   else
     printf ("Skipped\n");
+
+  //------------------------------------
+  // Enable Flash Read/Write for Atheros
+  //------------------------------------
+
+  if (proc_id == 0x00000001)
+    {
+      printf ("\nEnabling Atheros Flash Read/Write ... ");
+      ejtag_write (0xb8400000, 0x100e3ce1);
+      printf ("Done\n");
+
+    }
 
 
   // ----------------------------------

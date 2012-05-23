@@ -45,12 +45,14 @@
 #define RETRY_ATTEMPTS 16
 
 // --- Xilinx Type Cable ---
+
 #define TDI     0
 #define TCK     1
 #define TMS     2
 #define TDO     4
 
-// --- Wiggler Type Cable ---
+// ---Wiggler Type Cable ---
+
 #define WTDI      3
 #define WTCK      2
 #define WTMS      1
