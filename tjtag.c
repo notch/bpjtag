@@ -1,7 +1,8 @@
 // **************************************************************************
 //
-//  tjtag.c - EJTAG Debrick Utility v2.1.4 - Tornado MOD
+//  tjtag.c - EJTAG Debrick Utility v3.0.1 - Tornado MOD
 //
+
 // Default is Compile for Linux (both #define's below should be commented out)
 //#define WINDOWS_VERSION   // uncomment only this for Windows Compile / MS Visual C Compiler
 //#define __FreeBSD__       // uncomment only this for FreeBSD
@@ -10,22 +11,35 @@
 #include <windows.h>		// Only for Windows Compile
 #define strcasecmp  stricmp
 #define strncasecmp strnicmp
+#include <conio.h>
+#define _CRT_SECURE_NO_WARNINGS
 #endif
 
 #ifdef WINDOWS_VERSION
 #define tnano(seconds) Sleep((seconds) / 1000000)
+#define tmicro(seconds) Sleep((seconds) * 1000)
 /* Windows sleep is milliseconds, time/1000000 gives us nanoseconds */
 #else
+//ulseep is in microseconds
 #define tnano(seconds) sleep((seconds) / 1000000000)
+#define tmicro(seconds) usleep(seconds)
 #endif
 
+#include <inttypes.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <errno.h>
+#include <assert.h>
 
 #include "tjtag.h"
+#include "spi.h"
+
+#define TRUE  1
+#define FALSE 0
+
 
 static unsigned int ctrl_reg;
 
@@ -37,6 +51,7 @@ int issue_watchdog = 1;
 int issue_break = 1;
 int issue_erase = 1;
 int issue_timestamp = 1;
+int issue_reboot = 0;
 int force_dma = 0;
 int force_nodma = 0;
 int selected_fc = 0;
@@ -49,15 +64,22 @@ int skipdetect = 0;
 int instrlen = 0;
 int wiggler = 0;
 int speedtouch = 0;
+int DEBUG = 0;
+int Flash_DEBUG = 0;
+int probe_options = 0;
+
+
+unsigned int flash_size = 0;
+int block_total = 0;
+unsigned int block_addr = 0;
+unsigned int cmd_type = 0;
+int ejtag_version = 0;
+int bypass = 0;
+int USE_DMA = 0;
 
 
 char flash_part[128];
-unsigned int flash_size = 0;
-
-int block_total = 0;
-unsigned int block_addr = 0;
 unsigned int blocks[1024];
-unsigned int cmd_type = 0;
 
 char AREA_NAME[128];
 unsigned int AREA_START;
@@ -69,10 +91,25 @@ unsigned int devid;
 unsigned int data_register;
 unsigned int address_register;
 unsigned int proc_id;
+unsigned int xbit = 0;
+unsigned int frequency;
+unsigned int bcmproc = 0;
+unsigned int swap_endian = 0;
+unsigned int bigendian = 0;
 
-int USE_DMA = 0;
-int ejtag_version = 0;
-int bypass = 0;
+
+unsigned int spi_flash_read;
+unsigned int spi_flash_mmr;
+unsigned int spi_flash_mmr_size;
+unsigned int spi_flash_ctl;
+unsigned int spi_flash_opcode;
+unsigned int spi_flash_data;
+unsigned int spi_ctl_start;
+unsigned int spi_ctl_busy;
+
+#define	CID_ID_MASK		0x0000ffff
+
+struct STAT_REG_BITS p;
 
 typedef struct _processor_chip_type
 {
@@ -87,22 +124,34 @@ processor_chip_type processor_chip_list[] = {
   {0x0470417F, 8, "Broadcom BCM4704 Rev 8 CPU"},	// BCM4704 chip (used in the WRTSL54GS units)
   {0x1471217F, 8, "Broadcom BCM4712 Rev 1 CPU"},
   {0x2471217F, 8, "Broadcom BCM4712 Rev 2 CPU"},
+  {0x1471617F, 8, "Broadcom BCM4716 Rev 1 CPU"},	// Eko BCM4718A1KFBG
   {0x0478517F, 8, "Broadcom BCM4785 Rev 1 CPU"},	// Tornado WRT350N
   {0x0535017F, 8, "Broadcom BCM5350 Rev 1 CPU"},
   {0x0535217F, 8, "Broadcom BCM5352 Rev 1 CPU"},
   {0x1535417F, 8, "Broadcom BCM5354 KFBG Rev 1 CPU"},	// Tornado - WRT54G GV8/GSV7
   {0x2535417F, 8, "Broadcom BCM5354 KFBG Rev 2 CPU"},	// Tornado - Gv8/GSv7
+  {0x3535417F, 8, "Broadcom BCM5354 KFBG Rev 3 CPU"},	// Tornado - WRG54G2
+  {0x0334517F, 5, "Broadcom BCM3345 KPB Rev 1 CPU"},	// Eko QAMLink  BCM3345 KPB SB4200
   {0x0536517F, 8, "Broadcom BCM5365 Rev 1 CPU"},	// BCM5365 Not Completely Verified Yet
   {0x1536517F, 8, "Broadcom BCM5365 Rev 1 CPU"},	// Eko....ASUS WL 500 G Deluxe
   {0x0634517F, 5, "Broadcom BCM6345 Rev 1 CPU"},	// BCM6345 Not Completely Verified Yet
   {0x0634817F, 5, "Broadcom BCM6348 Rev 1 CPU"},
-  {0x0633817F, 5, "Broadcom BCM6338 Rev 1 CPU"},	//Speedtouch
-  {0x1432117F, 5, "Broadcom BCM4321 RADIO STOP"},	//Radio JP3 on a WRT300N V1.1
+  {0x0633817F, 5, "Broadcom BCM6338 Rev 1 CPU"},	// Speedtouch
+  {0x0635817F, 5, "Broadcom BCM6358 Rev 1 CPU"},	// brjtag Fully Tested
+  {0x0636817F, 5, "Broadcom BCM6368 Rev 1 CPU"},	// brjtag
+  {0x1432117F, 5, "Broadcom BCM4321 RADIO STOP"},	// Radio JP3 on a WRT300N V1.1
+  {0x3432117F, 5, "Broadcom BCM4321L RADIO STOP"},	// EKO Radio on WRT300n
   {0x0000100F, 5, "TI AR7WRD TNETD7300GDU Rev 1 CPU"},	// TI AR7WRD Only Partially Verified
   {0x102002E1, 5, "BRECIS MSP2007-CA-A1 CPU"},	// BRECIS chip - Not Completely Verified Yet
   {0x0B52D02F, 5, "TI TNETV1060GDW CPU"},	// Fox WRTP54G
-  {0x00217067, 5, "Linkstation 2 with RISC K4C chip"},	//Not verified
-  {0x00000001, 5, "Atheros AR531X/231X CPU"},	//WHR-HP-AG108
+  {0x00217067, 5, "Linkstation 2 with RISC K4C chip"},	// Not verified
+  {0x00000001, 5, "Atheros AR531X/231X CPU"},	// WHR-HP-AG108
+  {0x19277013, 7, "XScale IXP42X 266mhz"},	// GW2348-2 Eko Gateworks Avila GW234X (IXP42X 266MHz) BE
+  {0x19275013, 7, "XScale IXP42X 400mhz"},
+  {0x19274013, 7, "XScale IXP42X 533mhz"},
+  {0x10940027, 4, "ARM 940T"},	// Eko  Linksys BEFSX41
+  {0x07926041, 4, "Marvell Feroceon 88F5181"},
+  {0x1438000D, 5, "LX4380"},
   {
    0, 0, 0}
 };
@@ -125,7 +174,11 @@ flash_area_type flash_area_list[] = {
   {size2MB, "CFE", 0x1FC00000, 0x40000},
   {size4MB, "CFE", 0x1FC00000, 0x40000},	//256Kb
   {size8MB, "CFE", 0x1C000000, 0x40000},
-  {size16MB, "CFE", 0x1C000000, 0x40000},
+  {size16MB, "CFE", 0x1F000000, 0x40000},	//tornado - for alice
+
+  {size8MB, "AR-CFE", 0xA8000000, 0x40000},
+  {size16MB, "AR-CFE", 0xA8000000, 0x40000},
+
 
   {size1MB, "CFE128", 0x1FC00000, 0x20000},
   {size2MB, "CFE128", 0x1FC00000, 0x20000},
@@ -144,6 +197,8 @@ flash_area_type flash_area_list[] = {
   {size4MB, "KERNEL", 0x1FC40000, 0x3B0000},	//3776Kb
   {size8MB, "KERNEL", 0x1C040000, 0x7A0000},
   {size16MB, "KERNEL", 0x1C040000, 0x7A0000},
+  {size8MB, "AR-KERNEL", 0xA8040000, 0x7A0000},
+  {size16MB, "AR-KERNEL", 0xA8040000, 0x7A0000},
 
   {size1MB, "NVRAM", 0x1FCF0000, 0x10000},
   {size2MB, "NVRAM", 0x1FDF0000, 0x10000},
@@ -151,11 +206,21 @@ flash_area_type flash_area_list[] = {
   {size8MB, "NVRAM", 0x1C7E0000, 0x20000},
   {size16MB, "NVRAM", 0x1C7E0000, 0x20000},
 
+  {size8MB, "AR-NVRAM", 0xA87E0000, 0x20000},
+  {size16MB, "AR-NVRAM", 0xA87E0000, 0x20000},
+
+  {size2MB, "WGRV9NVRAM", 0x1FDFC000, 0x4000},
+  {size2MB, "WGRV9BDATA", 0x1FDFB000, 0x1000},
+  {size4MB, "WGRV8BDATA", 0x1FFE0000, 0x10000},	//64kb
+
   {size1MB, "WHOLEFLASH", 0x1FC00000, 0x100000},
   {size2MB, "WHOLEFLASH", 0x1FC00000, 0x200000},
   {size4MB, "WHOLEFLASH", 0x1FC00000, 0x400000},	//4Mb
   {size8MB, "WHOLEFLASH", 0x1C000000, 0x800000},
-  {size16MB, "WHOLEFLASH", 0x1C000000, 0x1000000},
+//    { size16MB,   "WHOLEFLASH",  0x1C000000,  0x1000000 },
+  {size16MB, "WHOLEFLASH", 0x1F000000, 0x1000000},
+  {size8MB, "AR-WHOLEFLASH", 0xA8000000, 0x800000},
+  {size16MB, "AR-WHOLEFLASH", 0xA8000000, 0x1000000},
 
   {size1MB, "BSP", 0x1FC00000, 0x50000},
   {size2MB, "BSP", 0x1FC00000, 0x50000},
@@ -163,6 +228,15 @@ flash_area_type flash_area_list[] = {
   {size8MB, "BSP", 0x1C000000, 0x50000},
   {size16MB, "BSP", 0x1C000000, 0x50000},
 
+  {size8MB, "AR-BSP", 0xA8000000, 0x50000},
+  {size16MB, "AR-BSP", 0xA8000000, 0x50000},
+
+  {size1MB, "RED", 0x50000000, 0x50000},
+  {size2MB, "RED", 0x50000000, 0x50000},
+  {size4MB, "RED", 0x50000000, 0x50000},
+  {size8MB, "AR-RED", 0xA8000000, 0x30000},
+  {size8MB, "RED", 0x50000000, 0x50000},
+  {size16MB, "RED", 0x50000000, 0x50000},
 
   {0, 0, 0, 0}
 };
@@ -196,8 +270,8 @@ flash_chip_type flash_chip_list[] = {
   {0x0001, 0x2249, size2MB, CMD_TYPE_AMD, "AMD 29lv160DB 1Mx16 BotB   (2MB)", 1, size16K, 2, size8K, 1, size32K, 31, size64K},	/* bypass */
   {0x0001, 0x22c4, size2MB, CMD_TYPE_AMD, "AMD 29lv160DT 1Mx16 TopB   (2MB)",
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x007f, 0x2249, size2MB, CMD_TYPE_AMD, "EON EN29LV160A 1Mx16 BotB  (2MB)", 1, size16K, 2, size8K, 1, size32K, 31, size64K},	/* bypass */
-  {0x007f, 0x22C4, size2MB, CMD_TYPE_AMD, "EON EN29LV160A 1Mx16 TopB  (2MB)",
+  {0x007F, 0x2249, size2MB, CMD_TYPE_AMD, "EON EN29LV160A 1Mx16 BotB  (2MB)", 1, size16K, 2, size8K, 1, size32K, 31, size64K},	/* bypass */
+  {0x007F, 0x22C4, size2MB, CMD_TYPE_AMD, "EON EN29LV160A 1Mx16 TopB  (2MB)",
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
   {0x0004, 0x2249, size2MB, CMD_TYPE_AMD, "MBM29LV160B 1Mx16 BotB     (2MB)",
    1, size16K, 2, size8K, 1, size32K, 31, size64K},
@@ -209,18 +283,30 @@ flash_chip_type flash_chip_list[] = {
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
   {0x00EC, 0x2275, size2MB, CMD_TYPE_AMD, "K8D1716UTC  1Mx16 TopB     (2MB)",
    31, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x00EC, 0x2277, size2MB, CMD_TYPE_AMD, "K8D1716UBC  1Mx16 BotB     (2MB)",
-   8, size8K, 31, size64K, 0, 0, 0, 0},
+  {0x00EC, 0x2277, size2MB, CMD_TYPE_AMD, "K8D1716UBC  1Mx16 BotB     (2MB)", 8, size8K, 31, size64K, 0, 0, 0, 0},	/* bypass */
   {0x0020, 0x2249, size2MB, CMD_TYPE_AMD, "ST M29W160EB 1Mx16 BotB    (2MB)",
    1, size16K, 2, size8K, 1, size32K, 31, size64K},
   {0x0020, 0x22c4, size2MB, CMD_TYPE_AMD, "ST M29W160ET 1Mx16 TopB    (2MB)",
    31, size64K, 1, size32K, 2, size8K, 1, size16K},
-  {0x00C2, 0x0014, size2MB, CMD_TYPE_AMD, "Macronix MX25L160A         (2MB)", 32, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x00C2, 0x0014, size2MB, CMD_TYPE_SPI, "Macronix MX25L160A         (2MB) Serial", 32, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x001f, 0x2600, size2MB, CMD_TYPE_SPI, "Atmel AT45DB161B           (2MB) Serial", 512, sizeA4K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x0040, 0x0000, size2MB, CMD_TYPE_SPI, "Atmel AT45DB161B           (2MB) Serial", 512, sizeA4K, 0, 0, 0, 0, 0, 0},	/* new */
 
-  {0x00EC, 0x22A0, size2MB, CMD_TYPE_AMD, "K8D3216UTC  2Mx16 TopB     (4MB)",
+  {0x00EC, 0x22A0, size4MB, CMD_TYPE_AMD, "K8D3216UTC  2Mx16 TopB     (4MB)",
    63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0x00EC, 0x22A2, size2MB, CMD_TYPE_AMD, "K8D3216UBC  2Mx16 BotB     (4MB)",
+  {0x00EC, 0x22A2, size4MB, CMD_TYPE_AMD, "K8D3216UBC  2Mx16 BotB     (4MB)",
    8, size8K, 63, size64K, 0, 0, 0, 0},
+
+  {0x00C2, 0x2015, size2MB, CMD_TYPE_SPI, "Macronix MX25L1605D        (2MB) Serial", 32, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x00C2, 0x2016, size4MB, CMD_TYPE_SPI, "Macronix MX25L3205D        (4MB) Serial", 64, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x00C2, 0x2017, size8MB, CMD_TYPE_SPI, "Macronix MX25L6405D        (8MB) Serial", 128, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+
+
+  {0x0020, 0x2015, size2MB, CMD_TYPE_SPI, "STMicro M25P16             (2MB) Serial", 32, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x0020, 0x2016, size4MB, CMD_TYPE_SPI, "STMicro M25P32             (4MB) Serial", 64, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x0020, 0x2017, size8MB, CMD_TYPE_SPI, "STMicro M25P64             (8MB) Serial", 128, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x0020, 0x2018, size16MB, CMD_TYPE_SPI, "STMicro M25P128           (16MB) Serial", 32, size256K, 0, 0, 0, 0, 0, 0},	/* new */
+
 
   {0x0001, 0x2200, size4MB, CMD_TYPE_AMD, "AMD 29lv320MB 2Mx16 BotB   (4MB)",
    8, size8K, 63, size64K, 0, 0, 0, 0},
@@ -260,6 +346,12 @@ flash_chip_type flash_chip_list[] = {
    1, size16K, 2, size8K, 1, size32K, 63, size64K},
   {0x0020, 0x22CA, size4MB, CMD_TYPE_AMD, "ST 29w320DT 2Mx16 TopB     (4MB)",
    63, size64K, 1, size32K, 2, size8K, 1, size16K},
+
+  {0x00C2, 0x22C9, size16MB, CMD_TYPE_AMD, "MX29LV640B 4Mx16 TopB     (16MB)",
+   127, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x00C2, 0x22CB, size16MB, CMD_TYPE_AMD, "MX29LV640B 4Mx16 BotB     (16MB)",
+   8, size8K, 127, size64K, 0, 0, 0, 0},
+
 
   {0x00DA, 0x22BA, size4MB, CMD_TYPE_AMD, "W19B(L)320ST   2Mx16 TopB  (4MB)", 63, size64K, 8, size8K, 0, 0, 0, 0},	/* new */
   {0x00DA, 0x222A, size4MB, CMD_TYPE_AMD, "W19B(L)320SB   2Mx16 BotB  (4MB)", 8, size8K, 63, size64K, 0, 0, 0, 0},	/* new */
@@ -325,45 +417,21 @@ flash_chip_type flash_chip_list[] = {
    128, size128K, 0, 0, 0, 0, 0, 0},
 
   /* SST */
-// WRONG
-//  { 0x00BF, 0x234B, size2MB, CMD_TYPE_SST, "SST39VF1601 1Mx16 BotB     (2MB)"   ,64,size32K,    0,0,          0,0,        0,0        },
-//  { 0x00BF, 0x234A, size2MB, CMD_TYPE_SST, "SST39VF1602 1Mx16 TopB     (2MB)"   ,64,size32K,    0,0,          0,0,        0,0        },
 
-// Correction
   {0x00BF, 0x234B, size2MB, CMD_TYPE_SST, "SST39VF1601 1Mx16 BotB     (2MB)",
    8, size8K, 31, size64K, 0, 0, 0, 0},
   {0x00BF, 0x234A, size2MB, CMD_TYPE_SST, "SST39VF1602 1Mx16 TopB     (2MB)",
    31, size64K, 8, size8K, 0, 0, 0, 0},
 
-
-// WRONG
-//  { 0x00BF, 0x235B, size4MB, CMD_TYPE_SST, "SST39VF3201 2Mx16 BotB     (4MB)"   ,128,size32K,   0,0,          0,0,        0,0        },
-//  { 0x00BF, 0x235A, size4MB, CMD_TYPE_SST, "SST39VF3202 2Mx16 TopB     (4MB)"   ,128,size32K,   0,0,          0,0,        0,0        },
-
-// Correction
   {0x00BF, 0x235B, size4MB, CMD_TYPE_SST, "SST39VF3201 2Mx16 BotB     (4MB)",
    8, size8K, 63, size64K, 0, 0, 0, 0},
   {0x00BF, 0x235A, size4MB, CMD_TYPE_SST, "SST39VF3202 2Mx16 TopB     (4MB)",
    63, size64K, 8, size8K, 0, 0, 0, 0},
 
-// Check this
-//  { 0x00BF, 0x2783, size4MB, CMD_TYPE_SST, "SST39VF320 2Mx16           (4MB)"   ,64,size64K,   0,0,          0,0,        0,0        },
-
-// WRONG
-//  { 0x00BF, 0x236B, size8MB, CMD_TYPE_SST, "SST39VF6401 4Mx16 BotB     (8MB)"   ,128,size64K,   0,0,          0,0,        0,0        },
-//  { 0x00BF, 0x236A, size8MB, CMD_TYPE_SST, "SST39VF6402 4Mx16 TopB     (8MB)"   ,128,size64K,   0,0,          0,0,        0,0        },
-
-// Correction
   {0x00BF, 0x236B, size8MB, CMD_TYPE_SST, "SST39VF6401 4Mx16 BotB     (8MB)",
    8, size8K, 127, size64K, 0, 0, 0, 0},
   {0x00BF, 0x236A, size8MB, CMD_TYPE_SST, "SST39VF6402 4Mx16 TopB     (8MB)",
    127, size64K, 8, size8K, 0, 0, 0, 0},
-
-// WRONG
-//  { 0x00BF, 0x236D, size8MB, CMD_TYPE_SST, "SST39VF6401B 4Mx16 BotB    (8MB)"   ,128,size64K,   0,0,          0,0,        0,0        },
-//  { 0x00BF, 0x236C, size8MB, CMD_TYPE_SST, "SST39VF6402B 4Mx16 TopB    (8MB)"   ,128,size64K,   0,0,          0,0,        0,0        },
-
-// Correction
   {0x00BF, 0x236D, size8MB, CMD_TYPE_SST, "SST39VF6401B 4Mx16 BotB    (8MB)",
    8, size8K, 127, size64K, 0, 0, 0, 0},
   {0x00BF, 0x236C, size8MB, CMD_TYPE_SST, "SST39VF6402B 4Mx16 TopB    (8MB)",
@@ -379,16 +447,39 @@ flash_chip_type flash_chip_list[] = {
   {0x017E, 0x1001, size8MB, CMD_TYPE_AMD, "Spansion S29GL064M TopB    (8MB)",
    127, size64K, 8, size8K, 0, 0, 0, 0},
 
+  {0x017E, 0x2101, size16MB, CMD_TYPE_AMD, "Spansion S29GL128P U      (16MB)",
+   128, size128K, 0, 0, 0, 0, 0, 0},
+  {0x017E, 0x1200, size16MB, CMD_TYPE_AMD, "Spansion S29GL128M U      (16MB)",
+   128, size128K, 0, 0, 0, 0, 0, 0},
+  {0x017E, 0x2201, size32MB, CMD_TYPE_AMD, "Spansion S29GL256P U      (32MB)",
+   256, size128K, 0, 0, 0, 0, 0, 0},
+  {0x017E, 0x2301, size64MB, CMD_TYPE_AMD, "Spansion S29GL512P U      (64MB)",
+   512, size128K, 0, 0, 0, 0, 0, 0},
+  {0x017E, 0x2801, size128MB, CMD_TYPE_AMD,
+   "Spansion S29GL01GP U     (128MB)", 1024, size128K, 0, 0, 0, 0, 0, 0},
+
+  {0x0001, 0x0214, size2MB, CMD_TYPE_SPI, "Spansion S25FL016A         (2MB) Serial", 32, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x0001, 0x0215, size4MB, CMD_TYPE_SPI, "Spansion S25FL032A         (4MB) Serial", 64, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x0001, 0x0216, size8MB, CMD_TYPE_SPI, "Spansion S25FL064A         (8MB) Serial", 128, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+
+
 // Winbond 3-stage ID chips
   {0xDA7E, 0x0A00, size4MB, CMD_TYPE_AMD, "Winbond W19B320AB BotB     (4MB)",
-   63, size64K, 8, size8K, 0, 0, 0, 0},
-  {0xDA7E, 0x0A01, size4MB, CMD_TYPE_AMD, "Winbond W19B320AT TopB     (4MB)",
    8, size8K, 63, size64K, 0, 0, 0, 0},
+  {0xDA7E, 0x0A01, size4MB, CMD_TYPE_AMD, "Winbond W19B320AT TopB     (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
+  {0x00EF, 0x3016, size4MB, CMD_TYPE_SPI, "Winbond W25X32             (4MB) Serial", 64, size64K, 0, 0, 0, 0, 0, 0},	/* new */
+  {0x00EF, 0x3017, size8MB, CMD_TYPE_SPI, "Winbond W25X64             (8MB) Serial", 128, size64K, 0, 0, 0, 0, 0, 0},	/* new */
 // EON
-  {0x007f, 0x22F9, size4MB, CMD_TYPE_AMD, "EON EN29LV320 2Mx16 BotB   (4MB)", 63, size64K, 8, size8K, 0, 0, 0, 0},	/* wrt54gl v1.1 */
-  {0x007f, 0x22F6, size4MB, CMD_TYPE_AMD, "EON EN29LV320 2Mx16 TopB   (4MB)", 8, size8K, 63, size64K, 0, 0, 0, 0},	/* bypass */
-
-
+  {0x007f, 0x22F9, size4MB, CMD_TYPE_AMD, "EON EN29LV320 2Mx16 BotB   (4MB)", 8, size8K, 63, size64K, 0, 0, 0, 0},	/* wrt54gl v1.1 */
+  {0x007f, 0x22F6, size4MB, CMD_TYPE_AMD, "EON EN29LV320 2Mx16 TopB   (4MB)", 63, size64K, 8, size8K, 0, 0, 0, 0},	/* bypass */
+  {0x007F, 0x22C9, size8MB, CMD_TYPE_AMD, "EON EN29LV640 4Mx16 TopB   (8MB)", 127, size64K, 8, size8K, 0, 0, 0, 0},	/* bypass */
+  {0x007F, 0x22Cb, size8MB, CMD_TYPE_AMD, "EON EN29LV640 4Mx16 BotB   (8MB)", 8, size8K, 127, size64K, 0, 0, 0, 0},	/* bypass */
+// Atmel
+  {0x001F, 0x00C8, size4MB, CMD_TYPE_AMD, "AT49BV322A 2Mx16 BotB      (4MB)",
+   8, size8K, 63, size64K, 0, 0, 0, 0},
+  {0x001F, 0x00C9, size4MB, CMD_TYPE_AMD, "AT49BV322A(T) 2Mx16 TopB   (4MB)",
+   63, size64K, 8, size8K, 0, 0, 0, 0},
   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 };
 
@@ -474,6 +565,14 @@ lpt_closeport (void)
 #endif
 }
 
+// Yoon's extensions for exiting debug mode
+
+static void
+return_from_debug_mode (void)
+{
+  ExecuteDebugModule (pracc_return_from_debug);
+}
+
 
 static unsigned char
 clockin (int tms, int tdi)
@@ -482,26 +581,31 @@ clockin (int tms, int tdi)
 
   tms = tms ? 1 : 0;
   tdi = tdi ? 1 : 0;
-
+// yoon's remark we set wtrst_n to be d4 so we are going to drive it low
   if (wiggler)
     data =
       (1 << WTDO) | (0 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 <<
 								   WTRST_N);
   else
     data = (1 << TDO) | (0 << TCK) | (tms << TMS) | (tdi << TDI);
+  cable_wait ();
+
+
 #ifdef WINDOWS_VERSION		// ---- Compiler Specific Code ----
   _outp (0x378, data);
 #else
 
   ioctl (pfd, PPWDATA, &data);
 #endif
-
   if (wiggler)
     data =
       (1 << WTDO) | (1 << WTCK) | (tms << WTMS) | (tdi << WTDI) | (1 <<
 								   WTRST_N);
   else
     data = (1 << TDO) | (1 << TCK) | (tms << TMS) | (tdi << TDI);
+  cable_wait ();
+
+
 #ifdef WINDOWS_VERSION		// ---- Compiler Specific Code ----
   _outp (0x378, data);
 #else
@@ -521,7 +625,6 @@ clockin (int tms, int tdi)
   return data;
 }
 
-
 // ---------------------------------------
 // ---- End of Compiler Specific Code ----
 // ---------------------------------------
@@ -537,12 +640,11 @@ test_reset (void)
   clockin (0, 0);		// enter runtest-idle
 }
 
-
+static int curinstr = 0xFFFFFFFF;
 void
 set_instr (int instr)
 {
   int i;
-  static int curinstr = 0xFFFFFFFF;
 
   if (instr == curinstr)
     return;
@@ -569,6 +671,11 @@ ReadWriteData (unsigned int in_data)
   unsigned int out_data = 0;
   unsigned char out_bit;
 
+  if (DEBUG)
+    printf ("INSTR: 0x%04x  ", curinstr);
+  if (DEBUG)
+    printf ("W: 0x%08x ", in_data);
+
   clockin (1, 0);		// enter select-dr-scan
   clockin (0, 0);		// enter capture-dr
   clockin (0, 0);		// enter shift-dr
@@ -579,6 +686,10 @@ ReadWriteData (unsigned int in_data)
     }
   clockin (1, 0);		// enter update-dr
   clockin (0, 0);		// enter runtest-idle
+
+  if (DEBUG)
+    printf ("R: 0x%08x\n", out_data);
+
   return out_data;
 }
 
@@ -597,22 +708,39 @@ WriteData (unsigned int in_data)
 }
 
 void
-MyData (unsigned int value)
-{
-  int i;
-  for (i = 0; i < 32; i++)
-    printf ("%d", (value >> (31 - i)) & 1);
-//    printf(" (%08X)\n", value);
-}
-
-
-void
 ShowData (unsigned int value)
 {
-  int i;
+  unsigned int i;
   for (i = 0; i < 32; i++)
     printf ("%d", (value >> (31 - i)) & 1);
   printf (" (%08X)\n", value);
+}
+
+unsigned int
+swap_bytes (unsigned int data, int num_bytes)
+{
+  unsigned int datab[4], i;
+
+  for (i = 0; i < num_bytes; i++)
+    {
+      datab[i] = (data >> ((num_bytes - i - 1) * 8) & 0xFF);
+    }
+
+  data = 0x0;
+  for (i = 0; i < num_bytes; i++)
+    {
+      data = (data | (datab[i] << (8 * i)));
+    }
+  return data;
+}
+
+unsigned short
+byteSwap (unsigned short data)
+{
+  //convert from little to big endian
+  unsigned short tmp;
+  tmp = (data << 8) | (data >> 8);
+  return tmp;
 }
 
 
@@ -625,7 +753,6 @@ ejtag_read (unsigned int addr)
     return (ejtag_pracc_read (addr));
 }
 
-
 static unsigned int
 ejtag_read_h (unsigned int addr)
 {
@@ -634,7 +761,6 @@ ejtag_read_h (unsigned int addr)
   else
     return (ejtag_pracc_read_h (addr));
 }
-
 
 void
 ejtag_write (unsigned int addr, unsigned int data)
@@ -645,7 +771,6 @@ ejtag_write (unsigned int addr, unsigned int data)
     ejtag_pracc_write (addr, data);
 }
 
-
 void
 ejtag_write_h (unsigned int addr, unsigned int data)
 {
@@ -654,7 +779,6 @@ ejtag_write_h (unsigned int addr, unsigned int data)
   else
     ejtag_pracc_write_h (addr, data);
 }
-
 
 static unsigned int
 ejtag_dma_read (unsigned int addr)
@@ -673,12 +797,16 @@ begin_ejtag_dma_read:
   ctrl_reg =
     ReadWriteData (DMAACC | DRWN | DMA_WORD | DSTRT | PROBEN | PRACC);
 
-  // Wait for DSTRT to Clear
-  while (ReadWriteData (DMAACC | PROBEN | PRACC) & DSTRT);
+  // Wait for DSTRT to Clear - Problem Gv8 tornado
+  if (!((proc_id & 0xfffffff) == 0x535417f))
+    {
+      while (ReadWriteData (DMAACC | PROBEN | PRACC) & DSTRT);
+    }
 
   // Read Data
   set_instr (INSTR_DATA);
   data = ReadData ();
+
 
   // Clear DMA & Check DERR
   set_instr (INSTR_CONTROL);
@@ -692,8 +820,9 @@ begin_ejtag_dma_read:
     }
 
   return (data);
-}
 
+
+}
 
 static unsigned int
 ejtag_dma_read_h (unsigned int addr)
@@ -729,16 +858,16 @@ begin_ejtag_dma_read_h:
 	printf ("DMA Read Addr = %08x  Data = (%08x)ERROR ON READ\n", addr,
 		data);
     }
-
   // Handle the bigendian / littleendian
+
   if (addr & 0x2)
     data = (data >> 16) & 0xffff;
   else
     data = (data & 0x0000ffff);
 
   return (data);
-}
 
+}
 
 void
 ejtag_dma_write (unsigned int addr, unsigned int data)
@@ -807,7 +936,6 @@ begin_ejtag_dma_write_h:
     }
 }
 
-
 static unsigned int
 ejtag_pracc_read (unsigned int addr)
 {
@@ -817,7 +945,6 @@ ejtag_pracc_read (unsigned int addr)
   return (data_register);
 }
 
-
 void
 ejtag_pracc_write (unsigned int addr, unsigned int data)
 {
@@ -825,7 +952,6 @@ ejtag_pracc_write (unsigned int addr, unsigned int data)
   data_register = data;
   ExecuteDebugModule (pracc_writeword_code_module);
 }
-
 
 static unsigned int
 ejtag_pracc_read_h (unsigned int addr)
@@ -843,6 +969,177 @@ ejtag_pracc_write_h (unsigned int addr, unsigned int data)
   address_register = addr | 0xA0000000;	// Force to use uncached segment
   data_register = data;
   ExecuteDebugModule (pracc_writehalf_code_module);
+}
+
+void
+setup_memory_4712 (void)
+{
+  printf ("Configuring SDRAM... ");
+
+  ejtag_dma_write (0x18006f98, 0x00030001);	// #define SBTMSTATELOW             offset 0xf00 + 0x98
+  ejtag_dma_write (0x18006f98, 0x00030000);
+  ejtag_dma_write (0x18006f98, 0x00010000);
+  ejtag_dma_write (0x18006004, 0x00048000);	// #define MEMC_SD_CONFIG_INIT      0x00048000
+  ejtag_dma_write (0x1800601c, 0x000754da);	// #define MEMC_SD_DRAMTIM3_INIT    0x000754da sbmemc.h
+  ejtag_dma_write (0x18006034, 0x23232323);
+  ejtag_dma_write (0x18006038, 0x14500200);	// #define MEMC_SD1_WRNCDLCOR_INIT  0x14500200       For corerev 1 (4712)
+  ejtag_dma_write (0x1800603c, 0x22021416);	// #define MEMC_SD1_MISCDLYCTL_INIT 0x00021416       For corerev 1 (4712)
+  ejtag_dma_write (0x18006000, 0x00000002);	// #define MEMC_SD_CONTROL_INIT0    0x00000002
+  ejtag_dma_write (0x18006000, 0x00000008);	// #define MEMC_SD_CONTROL_INIT1    0x00000008
+  ejtag_dma_write (0x18006000, 0x00000004);
+  ejtag_dma_write (0x18006000, 0x00000004);
+  ejtag_dma_write (0x18006000, 0x00000004);
+  ejtag_dma_write (0x18006000, 0x00000004);
+  ejtag_dma_write (0x18006000, 0x00000004);
+  ejtag_dma_write (0x18006000, 0x00000004);
+  ejtag_dma_write (0x18006000, 0x00000004);
+  ejtag_dma_write (0x18006000, 0x00000004);
+  ejtag_dma_write (0x18006008, 0x0000840f);	// #define MEMC_SD_REFRESH_INIT     0x0000840f
+  ejtag_dma_write (0x18006010, 0x00000032);	// sdram_config=0x0032
+  ejtag_dma_write (0x18006000, 0x00000010);	// #define MEMC_CONTROL_INIT2       0x00000010
+  ejtag_dma_write (0x18006000, 0x00000001);	//
+
+
+  printf ("Done\n\n");
+}
+
+void
+setup_memory_5352 (void)
+{
+  printf ("Configuring SDRAM... ");
+
+  ejtag_dma_write (0x18004f98, 0x00030001);	// SBTMSTATELOW             offset 0xf00 + 0x98
+  ejtag_dma_write (0x18004f98, 0x00030000);
+  ejtag_dma_write (0x18004f98, 0x00010000);
+  ejtag_dma_write (0x18004004, 0x0004810b);	// MEMC_SD_CONFIG_INIT      0x00048000
+  ejtag_dma_write (0x1800401c, 0x000754d9);	// MEMC_SD_DRAMTIM3_INIT    0x000754d9 sbmemc.h
+  ejtag_dma_write (0x18004034, 0x23232323);
+  ejtag_dma_write (0x18004038, 0x14500200);	// MEMC_SD1_WRNCDLCOR_INIT  0x14500200       For corerev 1 (4712)
+  ejtag_dma_write (0x1800403c, 0x21021400);	// MEMC_SD1_MISCDLYCTL_INIT 0x00021416       For corerev 1 (4712)
+  ejtag_dma_write (0x18004000, 0x00000002);	// MEMC_SD_CONTROL_INIT0    0x00000002
+  ejtag_dma_write (0x18004000, 0x00000008);	// MEMC_SD_CONTROL_INIT1    0x00000008
+  ejtag_dma_write (0x18004000, 0x00000004);	// MEMC_SD_CONTROL_INIT2
+  ejtag_dma_write (0x18004000, 0x00000004);	// MEMC_SD_CONTROL_INIT2
+  ejtag_dma_write (0x18004000, 0x00000004);	// MEMC_SD_CONTROL_INIT2
+  ejtag_dma_write (0x18004000, 0x00000004);	// MEMC_SD_CONTROL_INIT2
+  ejtag_dma_write (0x18004000, 0x00000004);	// MEMC_SD_CONTROL_INIT2
+  ejtag_dma_write (0x18004000, 0x00000004);	// MEMC_SD_CONTROL_INIT2
+  ejtag_dma_write (0x18004000, 0x00000004);	// MEMC_SD_CONTROL_INIT2
+  ejtag_dma_write (0x18004000, 0x00000004);	// MEMC_SD_CONTROL_INIT2
+  ejtag_dma_write (0x18004008, 0x0000840f);	// MEMC_SD_REFRESH_INIT     0x0000840f
+  ejtag_dma_write (0x18004010, 0x00000062);	// sdram_config=0x0062
+  ejtag_dma_write (0x18004000, 0x00000010);	// MEMC_SD_CONTROL_INIT3
+  ejtag_dma_write (0x18004000, 0x00000001);	// MEMC_SD_CONTROL_INIT4
+
+  printf ("Done\n\n");
+}
+
+void
+readmem_4712 (void)
+{
+  int temp;
+
+  printf ("Printing SDRAM\n");
+
+  temp = ejtag_read (0x18006f98);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006f98);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006f98);;
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006004);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x1800601c);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006034);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006038);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x1800603c);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006008);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006010);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18006000);
+  printf ("SDRAM = 0x%08x\n", temp);
+
+}
+
+void
+readmem_5352 (void)
+{
+  int temp = 0;
+
+  printf ("Printing SDRAM\n");
+
+  temp = ejtag_read (0x18004f98);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004f98);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004f98);;
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004004);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x1800401c);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004034);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004038);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x1800403c);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004008);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004010);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+  temp = ejtag_read (0x18004000);
+  printf ("SDRAM = 0x%08x\n", temp);
+
 }
 
 
@@ -950,7 +1247,6 @@ ExecuteDebugModule (unsigned int *pmodule)
     }
 }
 
-
 void
 chip_detect (void)
 {
@@ -1020,7 +1316,6 @@ chip_detect (void)
   exit (0);
 }
 
-
 void
 check_ejtag_features ()
 {
@@ -1082,6 +1377,23 @@ chip_shutdown (void)
 }
 
 void
+cable_wait (void)
+{
+  int s;
+
+  if (!frequency)
+    return;
+
+  s = 1000000 / frequency / 2;
+  if (s == 0)
+    s = 1;
+
+  tmicro (s);
+
+}
+
+
+void
 unlock_bypass (void)
 {
   ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00900090);	/* unlock bypass reset */
@@ -1091,13 +1403,13 @@ unlock_bypass (void)
   printf ("\nEntered Unlock Bypass mode->\n");
 }
 
+
 void
 unlock_bypass_reset (void)
 {
   ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00900090);	/* unlock bypass reset */
   ejtag_write_h (FLASH_MEMORY_START + (0x000), 0x00000000);
 }
-
 
 void
 run_backup (char *filename, unsigned int start, unsigned int length)
@@ -1107,11 +1419,12 @@ run_backup (char *filename, unsigned int start, unsigned int length)
   int counter = 0;
   int percent_complete = 0;
   char newfilename[128] = "";
+//    int swp_endian = (cmd_type == CMD_TYPE_SPI);
   time_t start_time = time (0);
   time_t end_time, elapsed_seconds;
 
   struct tm *lt = localtime (&start_time);
-  char time_str[15];
+  char time_str[16];
 
   sprintf (time_str, "%04d%02d%02d_%02d%02d%02d",
 	   lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
@@ -1148,6 +1461,10 @@ run_backup (char *filename, unsigned int start, unsigned int length)
 	  printf ("[%3d%% Backed Up]   %08x: ", percent_complete, addr);
 
       data = ejtag_read (addr);
+
+
+      if (swap_endian)
+	data = byteSwap_32 (data);
       fwrite ((unsigned char *) &data, 1, sizeof (data), fd);
 
       if (silent_mode)
@@ -1157,6 +1474,9 @@ run_backup (char *filename, unsigned int start, unsigned int length)
 
       fflush (stdout);
     }
+
+
+
   fclose (fd);
 
   printf ("Done  (%s saved to Disk OK)\n\n", newfilename);
@@ -1171,84 +1491,6 @@ run_backup (char *filename, unsigned int start, unsigned int length)
   elapsed_seconds = difftime (end_time, start_time);
   printf ("elapsed time: %d seconds\n", (int) elapsed_seconds);
 }
-
-
-
-void
-run_flash (char *filename, unsigned int start, unsigned int length)
-{
-  unsigned int addr, data;
-  FILE *fd;
-  int counter = 0;
-  int percent_complete = 0;
-  time_t start_time = time (0);
-  time_t end_time, elapsed_seconds;
-
-  printf ("*** You Selected to Flash the %s ***\n\n", filename);
-
-  fd = fopen (filename, "rb");
-  if (fd <= 0)
-    {
-      fprintf (stderr, "Could not open %s for reading\n", filename);
-      exit (1);
-    }
-
-  printf ("=========================\n");
-  printf ("Flashing Routine Started\n");
-  printf ("=========================\n");
-
-  if (issue_erase)
-    sflash_erase_area (start, length);
-
-  if (bypass)
-    {
-      unlock_bypass ();
-    }
-
-  printf ("\nLoading %s to Flash Memory...\n", filename);
-  for (addr = start; addr < (start + length); addr += 4)
-    {
-      counter += 4;
-      percent_complete = (counter * 100 / length);
-      if (!silent_mode)
-	if ((addr & 0xF) == 0)
-	  printf ("[%3d%% Flashed]   %08x: ", percent_complete, addr);
-
-      fread ((unsigned char *) &data, 1, sizeof (data), fd);
-      // Erasing Flash Sets addresses to 0xFF's so we can avoid writing these (for speed)
-      if (issue_erase)
-	{
-	  if (!(data == 0xFFFFFFFF))
-	    sflash_write_word (addr, data);
-	}
-      else
-	sflash_write_word (addr, data);	// Otherwise we gotta flash it all
-
-      // original  if (silent_mode)  printf("%4d%%   bytes = %d\r", percent_complete, counter);
-      if (silent_mode)
-	printf ("%4d%%   bytes = %d (%08x)@(%08x)=%08x\r", percent_complete,
-		counter, counter, addr, data);
-      else
-	printf ("%08x%c", data, (addr & 0xF) == 0xC ? '\n' : ' ');
-
-
-      fflush (stdout);
-      data = 0xFFFFFFFF;	// This is in case file is shorter than expected length
-    }
-  fclose (fd);
-  printf ("Done  (%s loaded into Flash Memory OK)\n\n", filename);
-
-  sflash_reset ();
-
-  printf ("=========================\n");
-  printf ("Flashing Routine Complete\n");
-  printf ("=========================\n");
-
-  time (&end_time);
-  elapsed_seconds = difftime (end_time, start_time);
-  printf ("elapsed time: %d seconds\n", (int) elapsed_seconds);
-}
-
 
 void
 run_erase (char *filename, unsigned int start, unsigned int length)
@@ -1316,9 +1558,6 @@ identify_flash_part (void)
       devid = (0x0100 * devsubid_m) + (0x0000 + devsubid_l);
     }
 
-// Funky AMD Chip
-//  if (((vendid & 0x00ff) == 0x0001) && (devid == 0x227E))  devid = ejtag_read_h(FLASH_MEMORY_START+0x1E);  // Get real devid
-
 
 
   while (flash_chip->vendid)
@@ -1329,16 +1568,81 @@ identify_flash_part (void)
 	  cmd_type = flash_chip->cmd_type;
 	  strcpy (flash_part, flash_chip->flash_part);
 
-	  if (flash_size >= size8MB)
-	    FLASH_MEMORY_START = 0x1C000000;
+	  if (strcasecmp (AREA_NAME, "CUSTOM") == 0)
+	    {
+	      FLASH_MEMORY_START = selected_window;
+	    }
 	  else
-	    FLASH_MEMORY_START = 0x1FC00000;
+	    {
+	      switch (proc_id)
+		{
+
+		case IXP425_266:
+		case IXP425_400:
+		  //   case IXP425_533:
+		  //       FLASH_MEMORY_START = 0x50000000;
+		  //       break;
+		case ARM_940T:
+		  FLASH_MEMORY_START = 0x00400000;
+		  break;
+		case 0x0635817F:
+		  FLASH_MEMORY_START = 0x1F000000;
+		  break;
+//    case ATH_PROC:
+//        FLASH_MEMORY_START = 0xA8000000;
+//        break;
+		default:
+		  if (flash_size >= size8MB)
+		    {
+
+		      FLASH_MEMORY_START = 0x1C000000;
+		    }
+		  else
+		    {
+
+		      FLASH_MEMORY_START = 0x1FC00000;
+		    }
+
+		}
+	    }
+
+
+
+	  if (proc_id == 0x00000001)
+	    {
+
+	      if ((strcasecmp (AREA_NAME, "CFE") == 0)
+		  && flash_size >= size8MB)
+		strcpy (AREA_NAME, "AR-CFE");
+
+	      if ((strcasecmp (AREA_NAME, "NVRAM") == 0)
+		  && flash_size >= size8MB)
+		strcpy (AREA_NAME, "AR-NVRAM");
+
+	      if ((strcasecmp (AREA_NAME, "KERNEL") == 0)
+		  && flash_size >= size8MB)
+		strcpy (AREA_NAME, "AR-KERNEL");
+
+	      if ((strcasecmp (AREA_NAME, "WHOLEFLASH") == 0)
+		  && flash_size >= size8MB)
+		strcpy (AREA_NAME, "AR-WHOLEFLASH");
+
+	      if ((strcasecmp (AREA_NAME, "BSP") == 0)
+		  && flash_size >= size8MB)
+		strcpy (AREA_NAME, "AR-BSP");
+
+	      if ((strcasecmp (AREA_NAME, "RED") == 0)
+		  && flash_size >= size8MB)
+		strcpy (AREA_NAME, "AR-RED");
+	    }
+
 
 	  while (flash_area->chip_size)
 	    {
 	      if ((flash_area->chip_size == flash_size)
 		  && (strcasecmp (flash_area->area_name, AREA_NAME) == 0))
 		{
+
 		  strcat (AREA_NAME, ".BIN");
 		  AREA_START = flash_area->area_start;
 		  AREA_LENGTH = flash_area->area_length;
@@ -1388,6 +1692,7 @@ identify_flash_part (void)
 	}
       flash_chip++;
     }
+
 }
 
 void
@@ -1403,6 +1708,7 @@ define_block (unsigned int block_count, unsigned int block_size)
       block_total++;
       blocks[block_total] = block_addr;
       block_addr = block_addr + block_size;
+
     }
 }
 
@@ -1433,20 +1739,666 @@ sflash_config (void)
 
 }
 
+unsigned char
+ATstatus_reg (void)
+{
+  unsigned char status;
+
+  ejtag_write (0x1fc00000, 0x57);
+  status = ejtag_read (0x1fc00000 & 0x80);
+  printf ("id bit = 0x%08x\n", status & 0x3c);
+  ShowData (status);
+  return status;
+}
+
+unsigned int
+ATready (void)
+{
+
+  int status;
+  for (;;)
+    {
+      status = ATstatus_reg ();
+      status = (status & 0xF << 7);
+//        printf("status1 = 0x%08x\n", status);
+//        ShowData(status);
+
+      if (status != 0x80)
+	{
+	  //  printf("Status BSY 0x%08x\n", status);
+	  status = 0;
+	  tnano (10000);
+
+	}
+
+      if (status == 0x80)	/* RDY/nBSY */
+
+
+	return status;
+
+    }
+}
+
+
+void
+mscan (void)
+{
+  unsigned int addr = 0x18000000, val = 0, i;
+
+  for (i = 0; i < 20000; i++)
+    {
+
+      // val = ((ejtag_read(addr)) &CID_ID_MASK);
+      val = ejtag_dma_read (addr);
+      // if (val != NULL && val != 0x0);
+      printf ("data 0x%08x addr 0x%08x\n", val, addr);
+      addr += 0x100;
+
+
+    }
+
+}
+
+
+void
+isbrcm (void)
+{
+  /*
+     if ((proc_id & 0xfff) == 0x17f)
+     {
+     struct chipcregs *cc;
+
+     uint32_t reg;
+     unsigned long osh = 0x18000000; //0x18000000;
+     cc = (chipcregs_t *)osh;
+
+     reg = ejtag_read((uintptr_t) &cc->chipid) &CID_ID_MASK;
+     printf("\n\nChip id %x\n", reg);
+
+     reg = ejtag_read((uintptr_t) &cc->chipid) &CID_REV_MASK;
+     reg = (reg >> CID_REV_SHIFT);
+     printf("Chip Rev %x\n", reg);
+
+     reg = ejtag_read((uintptr_t) &cc->chipid) &CID_PKG_MASK;
+     reg = (reg >> CID_PKG_SHIFT);
+     printf("Package Options %x\n", reg);
+
+     reg = ejtag_read((uintptr_t) &cc->chipid) &CID_CC_MASK;
+     reg = (reg >> CID_CC_SHIFT);
+     printf("Number of Cores %x\n", reg );
+
+     reg = ejtag_read((uintptr_t) &cc->chipid) & 0x00007000;
+     reg = ((reg >> 8) |  0x0000000F);
+     printf("Core Revision %x\n",  reg);
+
+     reg = ejtag_read((uintptr_t) &cc->chipid) & 0x00008FF0;
+     printf("Core Type %x\n", reg);
+
+     reg = ejtag_read((uintptr_t) &cc->chipid) & 0xFFFF0000;
+     printf("Core Vendor ID %x\n", reg);
+
+     reg = ejtag_read((uintptr_t) &cc->capabilities) &CC_CAP_FLASH_MASK;
+     printf("Flash Type %x\n", reg);
+
+     printf("REG = %lu CC = %lu \n", sizeof(reg ), sizeof(cc->chipid) );
+
+     switch (reg)
+     {
+     case FLASH_NONE:
+     printf("Flash Type = FLASH_NONE\n");
+     break;
+     case SFLASH_ST:
+     printf("Flash Type = SFLASH_ST\n");
+     break;
+     case SFLASH_AT:
+     printf("Flash Type = FLASH_AT\n");
+     break;
+     case PFLASH:
+     printf("Flash Type = PFLASH\n");
+     break;
+     default:
+     break;
+     }
+
+     reg = ejtag_read((unsigned long) &cc->capabilities) &CC_CAP_MIPSEB;
+     if (reg == 0)
+     {
+     printf("Endian Type is LE %x\n", reg);
+     }
+     else
+     printf("Endian Type is BE %x\n", reg);
+
+     reg = ejtag_read((unsigned long) &cc->capabilities) &CC_CAP_PLL_MASK;
+     printf("PLL Type %08x\n", reg);
+
+     }
+   */
+  if ((proc_id & 0x00000fff) == 0x17f)
+    {
+      bcmproc = 1;
+
+      spi_flash_read = BRCM_SPI_READ;
+      spi_flash_mmr = BRCM_SPI_MMR;
+      spi_flash_mmr_size = BRCM_SPI_MMR_SIZE;
+      spi_flash_ctl = BRCM_SPI_CTL;
+      spi_flash_opcode = BRCM_SPI_OPCODE;
+      spi_flash_data = BRCM_SPI_DATA;
+      spi_ctl_start = BRCM_SPI_CTL_START;
+      spi_ctl_busy = BRCM_SPI_CTL_BUSY;
+
+
+    }
+  else
+    {
+      spi_flash_read = AR531XPLUS_SPI_READ;
+      spi_flash_mmr = AR531XPLUS_SPI_MMR;
+      spi_flash_mmr_size = AR531XPLUS_SPI_MMR_SIZE;
+      spi_flash_ctl = AR531XPLUS_SPI_CTL;
+      spi_flash_opcode = AR531XPLUS_SPI_OPCODE;
+      spi_flash_data = AR531XPLUS_SPI_DATA;
+      spi_ctl_start = AR_SPI_CTL_START;
+      spi_ctl_busy = AR_SPI_CTL_BUSY;
+    }
+
+  if (Flash_DEBUG)
+    {
+      printf ("spi_flash_read 0x%08x\n", spi_flash_read);
+      printf ("spi_flash_mmr  0x%08x\n", spi_flash_mmr);
+      printf ("spi_flash_mmr_size 0x%08x\n", spi_flash_mmr_size);
+      printf ("spi_flash_ctl  0x%08x\n", spi_flash_ctl);
+      printf ("spi_flash_opcode 0x%08x\n", spi_flash_opcode);
+      printf ("spi_flash_data 0x%08x\n", spi_flash_data);
+      printf ("spi_ctl_start 0x%08x\n", spi_ctl_start);
+      printf ("spi_ctl_busy 0x%08x\n", spi_ctl_busy);
+    }
+}
+
+
+int
+spiflash_poll (void)
+{
+  int reg, finished;
+
+  /* Check for ST Write In Progress bit */
+  spiflash_sendcmd (SPI_RD_STATUS);
+  reg = ejtag_read (spi_flash_data);
+  if (!(reg & SPI_STATUS_WIP))
+    {
+      finished = TRUE;
+      printf ("REG SPIFLASH_POLL 0x%08x\n", reg);
+    }
+  while (!finished);
+  return 0;
+}
+
+
+uint32_t
+spiflash_regread32 (int reg)
+{
+
+  uint32_t data = ejtag_read (spi_flash_mmr + reg);
+  if (Flash_DEBUG)
+    printf ("REGREAD32 data 0x%08x spi_flash_mmr 0x%08x reg 0x%08x\n", data,
+	    spi_flash_mmr, reg);
+
+  return data;
+}
+
+static void
+spiflash_regwrite32 (int reg, uint32_t data)
+{
+
+  ejtag_write (spi_flash_mmr + reg, data);
+  if (Flash_DEBUG)
+    printf ("REG 0x%08x REGWRITE32 0x%08x\n", reg, data);
+
+  return;
+}
+
+
+uint32_t
+spiflash_sendcmd (int op)
+{
+  uint32_t reg, mask;
+  struct opcodes *ptr_opcode;
+
+  ptr_opcode = &stm_opcodes[op];
+
+  if (bcmproc)
+    ejtag_write (0x18000040, 0x0000);
+
+
+  /* wait for CPU spiflash activity. */
+  do
+    {
+      reg = spiflash_regread32 (spi_flash_ctl);
+
+    }
+  while (reg & spi_ctl_busy);
+
+  /* send the command */
+
+  spiflash_regwrite32 (spi_flash_opcode, ptr_opcode->code);
+
+  if (Flash_DEBUG)
+    printf ("SPI_FLASH_OPCODE 0x%08x PTR_OPCODE 0x%08x\n", spi_flash_opcode,
+	    ptr_opcode->code);
+
+  if (bcmproc)
+    reg = (reg & ~SPI_CTL_TX_RX_CNT_MASK) | ptr_opcode->code | spi_ctl_start;
+  else
+    reg =
+      (reg & ~SPI_CTL_TX_RX_CNT_MASK) | ptr_opcode->tx_cnt | (ptr_opcode->
+							      rx_cnt << 4) |
+      spi_ctl_start;
+
+  spiflash_regwrite32 (spi_flash_ctl, reg);
+
+  if (Flash_DEBUG)
+    printf ("SPI_FLASH_CTL SEND -> 0x%08x reg 0x%08x\n", spi_flash_ctl, reg);
+
+
+  /* wait for CPU spiflash activity */
+  do
+    {
+      reg = spiflash_regread32 (spi_flash_ctl);
+
+    }
+  while (reg & spi_ctl_busy);
+
+  if (ptr_opcode->rx_cnt > 0)
+    {
+      reg = (uint32_t) spiflash_regread32 (spi_flash_data);
+
+      switch (ptr_opcode->rx_cnt)
+	{
+	case 1:
+	  mask = 0x000000ff;
+	  break;
+	case 2:
+	  mask = 0x0000ffff;
+	  break;
+	case 3:
+	  mask = 0x00ffffff;
+	  break;
+	default:
+	  mask = 0xffffffff;
+	  break;
+	}
+      reg &= mask;
+    }
+  else
+    {
+      reg = 0;
+    }
+
+  return reg;
+}
+
+int
+spi_chiperase (uint32_t offset)
+{
+
+  ejtag_write (0x18000040, 0x0000);
+
+  spiflash_sendcmd (SPI_WRITE_ENABLE);
+
+  ejtag_write (BRCM_FLASHADDRESS, offset);
+
+  ejtag_write (0x18000040, 0x800000c7);
+
+  return 0;
+
+}
+
+
+static int
+spiflash_erase_block (uint32_t addr)
+{
+
+  struct opcodes *ptr_opcode;
+  uint32_t temp, reg;
+  int finished = FALSE;
+
+  /* We are going to do 'sector erase', do 'write enable' first. */
+  if (bcmproc)
+    ptr_opcode = &stm_opcodes[BCM_SPI_SECTOR_ERASE];
+  else
+    ptr_opcode = &stm_opcodes[SPI_SECTOR_ERASE];
+
+  if (bcmproc)
+    ejtag_write (0x18000040, 0x0000);
+
+  spiflash_sendcmd (SPI_WRITE_ENABLE);
+
+  /* we are not really waiting for CPU spiflash activity, just need the value of the register. */
+
+  do
+    {
+      reg = spiflash_regread32 (spi_flash_ctl);
+
+    }
+  while (reg & spi_ctl_busy);
+
+  /* send our command */
+  if (bcmproc)
+    temp = ((uint32_t) addr) | (uint32_t) (ptr_opcode->code);
+  else
+    temp = ((uint32_t) addr << 8) | (uint32_t) (ptr_opcode->code);
+
+  spiflash_regwrite32 (spi_flash_opcode, temp);
+
+  if (bcmproc)
+    reg = (reg & ~SPI_CTL_TX_RX_CNT_MASK) | ptr_opcode->code | spi_ctl_start;
+  else
+    reg =
+      (reg & ~SPI_CTL_TX_RX_CNT_MASK) | ptr_opcode->tx_cnt | spi_ctl_start;
+
+  spiflash_regwrite32 (spi_flash_ctl, reg);
+
+  if (bcmproc)
+    ejtag_write (0x18000040, 0x0000);
+
+  /* wait for CPU spiflash activity */
+
+
+  do
+    {
+      reg = spiflash_regread32 (spi_flash_ctl);
+
+    }
+  while (reg & spi_ctl_busy);
+
+  /* wait for 'write in progress' to clear */
+  do
+    {
+      if (bcmproc)
+	reg = spiflash_sendcmd (BCM_SPI_RD_STATUS);
+      else
+	reg = spiflash_sendcmd (SPI_RD_STATUS);
+      if (!(reg & SPI_STATUS_WIP))
+	finished = TRUE;
+    }
+  while (!finished);
+
+  return (0);
+}
+
+void
+spiflash_write_word (uint32_t addr, uint32_t data)
+{
+  int finished;
+  uint32_t reg, opcode;
+
+
+  if (bcmproc)
+    {
+      ejtag_write (spi_flash_ctl, 0x000);
+      spiflash_sendcmd (BCM_SPI_WRITE_ENABLE);
+    }
+  else
+    spiflash_sendcmd (SPI_WRITE_ENABLE);
+
+  /* we are not really waiting for CPU spiflash activity, just need the value of the register. */
+  do
+    {
+      reg = spiflash_regread32 (spi_flash_ctl);
+
+    }
+  while (reg & spi_ctl_busy);
+
+  /* send write command */
+
+  spiflash_regwrite32 (spi_flash_data, data);
+
+  if (bcmproc)
+    opcode = (addr);
+  else
+    opcode = STM_OP_PAGE_PGRM | (addr << 8);
+
+  spiflash_regwrite32 (spi_flash_opcode, opcode);
+
+  if (bcmproc)
+    reg = (reg & ~SPI_CTL_TX_RX_CNT_MASK) | 0x0402 | spi_ctl_start;
+  else
+    reg = (reg & ~SPI_CTL_TX_RX_CNT_MASK) | (4 + 4) | spi_ctl_start;
+
+  spiflash_regwrite32 (spi_flash_ctl, reg);
+
+  if (Flash_DEBUG)
+    printf ("spi_flash_ctl 0x%08x reg 0x%08x\n", spi_flash_ctl, reg);
+
+  finished = 0;
+
+  /* wait CPU spi activity */
+  do
+    {
+      reg = spiflash_regread32 (spi_flash_ctl);
+
+
+    }
+  while (reg & spi_ctl_busy);
+
+  do
+    {
+      if (bcmproc)
+	reg = spiflash_sendcmd (BCM_SPI_RD_STATUS);
+      else
+	reg = spiflash_sendcmd (SPI_RD_STATUS);
+
+      if (!(reg & SPI_STATUS_WIP))
+	{
+	  finished = TRUE;
+	}
+    }
+  while (!finished);
+}
+
+
+void
+run_flash (char *filename, unsigned int start, unsigned int length)
+{
+  unsigned int addr, data;
+  FILE *fd;
+  int counter = 0;
+  int percent_complete = 0;
+  time_t start_time = time (0);
+  time_t end_time, elapsed_seconds;
+
+  printf ("*** You Selected to Flash the %s ***\n\n", filename);
+
+  fd = fopen (filename, "rb");
+  if (fd <= 0)
+    {
+      fprintf (stderr, "Could not open %s for reading\n", filename);
+      exit (1);
+    }
+
+  printf ("=========================\n");
+  printf ("Flashing Routine Started\n");
+  printf ("=========================\n");
+
+  if (issue_erase)
+    sflash_erase_area (start, length);
+
+  if (bypass)
+    {
+      unlock_bypass ();
+    }
+
+  printf ("\nLoading %s to Flash Memory...\n", filename);
+  for (addr = start; addr < (start + length); addr += 4)
+    {
+      counter += 4;
+      percent_complete = (counter * 100 / length);
+      if (!silent_mode)
+	if ((addr & 0xF) == 0)
+	  printf ("[%3d%% Flashed]   %08x: ", percent_complete, addr);
+
+      fread ((unsigned char *) &data, 1, sizeof (data), fd);
+
+      // Erasing Flash Sets addresses to 0xFF's so we can avoid writing these (for speed)
+      if (issue_erase)
+	{
+	  if (!(data == 0xFFFFFFFF))
+	    sflash_write_word (addr, data);
+	}
+      else
+	sflash_write_word (addr, data);	// Otherwise we gotta flash it all
+
+
+      // original  if (silent_mode)  printf("%4d%%   bytes = %d\r", percent_complete, counter);
+      if (silent_mode)
+	printf ("%4d%%   bytes = %d (%08x)@(%08x)=%08x\r", percent_complete,
+		counter, counter, addr, data);
+      else
+	printf ("%08x%c", data, (addr & 0xF) == 0xC ? '\n' : ' ');
+
+
+      fflush (stdout);
+      data = 0xFFFFFFFF;	// This is in case file is shorter than expected length
+    }
+
+  fclose (fd);
+  printf ("Done  (%s loaded into Flash Memory OK)\n\n", filename);
+
+  sflash_reset ();
+
+
+  printf ("=========================\n");
+  printf ("Flashing Routine Complete\n");
+  printf ("=========================\n");
+
+  time (&end_time);
+  elapsed_seconds = difftime (end_time, start_time);
+  printf ("elapsed time: %d seconds\n", (int) elapsed_seconds);
+}
+
+void
+run_load (char *filename, unsigned int start)
+{
+  unsigned int addr, data;
+  FILE *fd;
+  int counter = 0;
+  int percent_complete = 0;
+  unsigned int length = 0;
+  time_t start_time = time (0);
+  time_t end_time, elapsed_seconds;
+
+  printf ("*** You Selected to program the %s ***\n\n", filename);
+
+  fd = fopen (filename, "rb");
+  if (fd <= 0)
+    {
+      fprintf (stderr, "Could not open %s for reading\n", filename);
+      exit (1);
+    }
+
+  // get file size
+  fseek (fd, 0, SEEK_END);
+  length = ftell (fd);
+  fseek (fd, 0, SEEK_SET);
+
+
+  printf ("===============================\n");
+  printf ("Programming RAM Routine Started\n");
+  printf ("===============================\n");
+
+  printf ("\nLoading %s to RAM...\n", filename);
+  for (addr = start; addr < (start + length); addr += 4)
+    {
+      counter += 4;
+      percent_complete = (counter * 100 / length);
+      if (!silent_mode)
+	if ((addr & 0xF) == 0)
+	  printf ("[%3d%%]   %08x: ", percent_complete, addr);
+
+      fread ((unsigned char *) &data, 1, sizeof (data), fd);
+      ejtag_write (addr, data);
+
+      if (silent_mode)
+	printf ("%4d%%   bytes = %d (%08x)@(%08x)=%08x\r", percent_complete,
+		counter, counter, addr, data);
+      else
+	printf ("%08x%c", data, (addr & 0xF) == 0xC ? '\n' : ' ');
+
+      fflush (stdout);
+      data = 0xFFFFFFFF;	// This is in case file is shorter than expected length
+    }
+  fclose (fd);
+  printf ("Done  (%s loaded into Memory OK)\n\n", filename);
+
+  sflash_reset ();
+
+
+  printf ("================================\n");
+  printf ("Programming RAM Routine Complete\n");
+  printf ("================================\n");
+
+  time (&end_time);
+  elapsed_seconds = difftime (end_time, start_time);
+  printf ("elapsed time: %d seconds\n", (int) elapsed_seconds);
+
+  /*
+     printf("Resuming Processor ... ");
+     set_instr(INSTR_CONTROL);
+     ReadWriteData((PRACC | PROBEN | PROBTRAP) & ~JTAGBRK );
+     if (ReadWriteData(PRACC | PROBEN | PROBTRAP) & BRKST)
+     printf("<Processor is in the Run Mode!> ... ");
+     else
+     printf("<Processor is in the Debug Mode!> ... ");
+
+     ReadWriteData(PRRST | PERRST);
+     printf("Done\n");
+   */
+}
+
+
 void
 sflash_probe (void)
 {
-  int retries = 300;
+  int retries = 0;
 
-  // Default to Standard Flash Window for Detection if not CUSTOM
+
   if (strcasecmp (AREA_NAME, "CUSTOM") == 0)
-    FLASH_MEMORY_START = selected_window;
+    {
+      FLASH_MEMORY_START = selected_window;
+    }
   else
-    FLASH_MEMORY_START = 0x1FC00000;
+    {
+      switch (proc_id)
+	{
 
+	case IXP425_266:
+	case IXP425_400:
+	  //   case IXP425_533:
+	  //       FLASH_MEMORY_START = 0x50000000;
+	  //       break;
+	case ARM_940T:
+	  FLASH_MEMORY_START = 0x00400000;
+	  break;
+	case 0x0635817F:
+	  FLASH_MEMORY_START = 0x1F000000;
+	  break;
+//    case ATH_PROC:
+//        FLASH_MEMORY_START = 0xA8000000;
+//        break;
+	default:
+	  if (flash_size >= size8MB)
+	    {
 
+	      FLASH_MEMORY_START = 0x1c000000;
+	    }
+	  else
+	    {
 
-  printf ("\nProbing Flash at (Flash Window: 0x%08x) ... ",
+	      FLASH_MEMORY_START = 0x1FC00000;
+	    }
+
+	}
+    }
+
+  printf ("\nProbing Flash at (Flash Window: 0x%08x) ... \n",
 	  FLASH_MEMORY_START);
 
 again:
@@ -1454,9 +2406,9 @@ again:
   strcpy (flash_part, "");
 
   // Probe using cmd_type for AMD
+
   if (strcasecmp (flash_part, "") == 0)
     {
-
 
       cmd_type = CMD_TYPE_AMD;
       sflash_reset ();
@@ -1466,16 +2418,23 @@ again:
       ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00900090);
       vendid = ejtag_read_h (FLASH_MEMORY_START);
       devid = ejtag_read_h (FLASH_MEMORY_START + 2);
-//      printf("\nVENDID-A 0x%08X\n", vendid);
-//      printf("DEVID-A  0x%08X\n", devid);
+
+      if (Flash_DEBUG)
+	{
+	  printf ("\nDebug AMD Vendid :    ");
+	  ShowData (vendid);
+	  printf ("Debug AMD Devdid :    ");
+	  ShowData (devid);
+
+	}
+
       identify_flash_part ();
-
-
     }
 
-  // Probe using cmd_type for SST
+
   if (strcasecmp (flash_part, "") == 0)
     {
+
       cmd_type = CMD_TYPE_SST;
       sflash_reset ();
       ejtag_write_h (FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
@@ -1483,25 +2442,82 @@ again:
       ejtag_write_h (FLASH_MEMORY_START + (0x5555 << 1), 0x00900090);
       vendid = ejtag_read_h (FLASH_MEMORY_START);
       devid = ejtag_read_h (FLASH_MEMORY_START + 2);
-//      printf("\nVENDID-S 0x%08X\n", vendid);
-//      printf("DEVID-S  0x%08X\n", devid);
+
+      if (Flash_DEBUG)
+	{
+	  printf ("\nDebug SST Vendid :    ");
+	  ShowData (vendid);
+	  printf ("Debug SST Devdid :    ");
+	  ShowData (devid);
+
+	}
 
       identify_flash_part ();
+
     }
+
 
   // Probe using cmd_type for BSC & SCS
+
   if (strcasecmp (flash_part, "") == 0)
     {
+
       cmd_type = CMD_TYPE_BSC;
       sflash_reset ();
+
       ejtag_write_h (FLASH_MEMORY_START, 0x00900090);
-      vendid = ejtag_read_h (FLASH_MEMORY_START);
-      devid = ejtag_read_h (FLASH_MEMORY_START + 2);
-//      printf("\nVENDID-B 0x%08X\n", vendid);
-//      printf("DEVID-B  0x%08X\n", devid);
+      vendid = ejtag_read (FLASH_MEMORY_START);
+      devid = ejtag_read (FLASH_MEMORY_START + 2);
+
+
+      if (Flash_DEBUG)
+	{
+	  printf ("\nDebug BSC-SCS Vendid :");
+	  ShowData (vendid);
+	  printf ("Debug BCS-SCS Devdid :");
+	  ShowData (devid);
+
+	}
 
       identify_flash_part ();
     }
+
+
+  if (strcasecmp (flash_part, "") == 0)
+    {
+      int id;
+
+      cmd_type = CMD_TYPE_SPI;
+
+      if (bcmproc)
+	{
+	  id = spiflash_sendcmd (BCM_SPI_RD_ID);
+	  //id2 = spiflash_sendcmd(BCM_SPI_RD_RES);
+
+	}
+      else
+	id = spiflash_sendcmd (SPI_RD_ID);
+
+      id <<= 8;
+      id = byteSwap_32 (id);
+      vendid = id >> 16;
+      devid = id & 0x0000ffff;
+
+      if (Flash_DEBUG)
+	{
+	  printf ("\nDebug SPI id :    ");
+	  ShowData (id);
+	  printf ("\nDebug SPI Vendid :    ");
+	  ShowData (vendid);
+	  printf ("Debug SPI Devdid :    ");
+	  ShowData (devid);
+
+
+	}
+
+      identify_flash_part ();
+    }
+
 
   if (strcasecmp (flash_part, "") == 0)
     {
@@ -1513,7 +2529,6 @@ again:
 	  printf ("*** Unknown or NO Flash Chip Detected ***");
 	}
     }
-
   return;
 }
 
@@ -1543,7 +2558,6 @@ sflash_erase_area (unsigned int start, unsigned int length)
   unsigned int reg_start;
   unsigned int reg_end;
 
-
   reg_start = start;
   reg_end = reg_start + length;
 
@@ -1561,8 +2575,10 @@ sflash_erase_area (unsigned int start, unsigned int length)
   for (cur_block = 1; cur_block <= block_total; cur_block++)
     {
       block_addr = blocks[cur_block];
+
       if ((block_addr >= reg_start) && (block_addr < reg_end))
 	{
+
 	  printf ("Erasing block: %d (addr = %08x)...", cur_block,
 		  block_addr);
 	  fflush (stdout);
@@ -1578,6 +2594,10 @@ sflash_erase_area (unsigned int start, unsigned int length)
 void
 sflash_erase_block (unsigned int addr)
 {
+  if (cmd_type == CMD_TYPE_SPI)
+    {
+      spiflash_erase_block (addr);
+    }
 
   if (cmd_type == CMD_TYPE_AMD)
     {
@@ -1625,6 +2645,7 @@ sflash_erase_block (unsigned int addr)
       ejtag_write_h (addr, 0x00D000D0);	// Confirm Command
       ejtag_write_h (addr, 0x00700070);
 
+
       // Wait for Unlock Completion
       sflash_poll (addr, STATUS_READY);
 
@@ -1643,6 +2664,25 @@ sflash_erase_block (unsigned int addr)
 
 }
 
+void
+chip_erase (void)
+{
+
+  printf ("Chip Erase\n");
+
+  FLASH_MEMORY_START = (0x1fc0000);
+  //Unlock Block
+  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
+  ejtag_write_h (FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
+  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00800080);
+
+  //Erase Block
+  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00AA00AA);
+  ejtag_write_h (FLASH_MEMORY_START + (0x2AA << 1), 0x00550055);
+
+  ejtag_write_h (0x1fc00000, 0x00100010);
+
+}
 
 void
 sflash_reset (void)
@@ -1650,6 +2690,7 @@ sflash_reset (void)
 
   if ((cmd_type == CMD_TYPE_AMD) || (cmd_type == CMD_TYPE_SST))
     {
+
       ejtag_write_h (FLASH_MEMORY_START, 0x00F000F0);	// Set array to read mode
     }
 
@@ -1665,6 +2706,7 @@ void
 sflash_write_word (unsigned int addr, unsigned int data)
 {
   unsigned int data_lo, data_hi;
+
 
   if (USE_DMA)
     {
@@ -1683,8 +2725,14 @@ sflash_write_word (unsigned int addr, unsigned int data)
 
     }
 
+  if (cmd_type == CMD_TYPE_SPI)
+    {
+      spiflash_write_word (addr, data);
+    }
+
   if (cmd_type == CMD_TYPE_AMD)
     {
+
       if (bypass)
 	{
 	  if (proc_id == 0x00000001)
@@ -1699,18 +2747,16 @@ sflash_write_word (unsigned int addr, unsigned int data)
 	      tnano (100);
 	    }
 	  else
-	    ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
-	  ejtag_write_h (addr, data_lo);
-	  tnano (100);
+	    {
 
+	      ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
+	      ejtag_write_h (addr, data_lo);
 
-	  ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
-	  ejtag_write_h (addr + 2, data_hi);
-	  tnano (100);
+	      ejtag_write_h (FLASH_MEMORY_START + (0x555 << 1), 0x00A000A0);
+	      ejtag_write_h (addr + 2, data_hi);
 
-
+	    }
 	}
-
       else
        if (speedtouch || proc_id == 0x00000001)
 	{
@@ -1733,6 +2779,7 @@ sflash_write_word (unsigned int addr, unsigned int data)
 	  // Wait for Completion
 	  sflash_poll (addr + 2, ((data >> 16) & 0xffff));
 	}
+
       else
 	{
 	  ejtag_write_h (FLASH_MEMORY_START + (0x5555 << 1), 0x00AA00AA);
@@ -1752,6 +2799,7 @@ sflash_write_word (unsigned int addr, unsigned int data)
 	  // Wait for Completion
 	  sflash_poll (addr + 2, ((data >> 16) & 0xffff));
 	}
+
 
     }
 
@@ -1778,11 +2826,13 @@ sflash_write_word (unsigned int addr, unsigned int data)
 
   if ((cmd_type == CMD_TYPE_BSC) || (cmd_type == CMD_TYPE_SCS))
     {
+
+
       // Handle Half Of Word
       ejtag_write_h (addr, 0x00500050);	// Clear Status Command
       ejtag_write_h (addr, 0x00400040);	// Write Command
       ejtag_write_h (addr, data_lo);	// Send HalfWord Data
-      ejtag_write_h (addr, 0x00700070);	// Check Status Command
+//       ejtag_write_h(addr, 0x00700070);     // Check Status Command
 
       // Wait for Completion
       sflash_poll (addr, STATUS_READY);
@@ -1791,12 +2841,15 @@ sflash_write_word (unsigned int addr, unsigned int data)
       ejtag_write_h (addr + 2, 0x00500050);	// Clear Status Command
       ejtag_write_h (addr + 2, 0x00400040);	// Write Command
       ejtag_write_h (addr + 2, data_hi);	// Send HalfWord Data
-      ejtag_write_h (addr + 2, 0x00700070);	// Check Status Command
+      //     ejtag_write_h(addr+2, 0x00700070);   // Check Status Command
 
-      // Wait for Completion
-      sflash_poll (addr + 2, STATUS_READY);
+
+      sflash_poll (addr, STATUS_READY);
     }
 }
+
+
+
 
 
 void
@@ -1820,7 +2873,6 @@ show_usage (void)
       processor_chip++;
     }
 
-
   printf ("\n\n");
   printf
     (" USAGE: tjtag [parameter] </noreset> </noemw> </nocwd> </nobreak> </noerase>\n"
@@ -1837,7 +2889,9 @@ show_usage (void)
      "            -flash:cfe\n" "            -flash:nvram\n"
      "            -flash:kernel\n" "            -flash:wholeflash\n"
      "            -flash:custom\n" "            -flash:bsp\n"
-     "            -probeonly\n\n" "            Optional Switches\n"
+     "            -probeonly\n" "            -probeonly:custom\n"
+     "		 Optional with -backup:, -erase:, -flash: wgrv8bdata, wgrv9bdata, cfe128\n\n"
+     "            Optional Switches\n"
      "            -----------------\n"
      "            /noreset ........... prevent Issuing EJTAG CPU reset\n"
      "            /noemw ............. prevent Enabling Memory Writes\n"
@@ -1855,7 +2909,10 @@ show_usage (void)
      "            /instrlen:XX ....... set instruction length manually\n"
      "            /wiggler ........... use wiggler cable\n"
      "            /bypass ............ Unlock Bypass command & disable polling\n"
-     "            /st5 ............... Use Speedtouch ST5xx flash routines instead of WRT routines\n\n"
+     "            /st5 ............... Use Speedtouch ST5xx flash routines instead of WRT routines\n"
+     "            /reboot............. sets the process and reboots\n"
+     "		 /swap_endian........ swap endianess during backup - most Atheros based routers\n"
+     "		 /flash_debug........ flash chip debug messages, show flash MFG and Device ID\n\n"
      "            /fc:XX = Optional (Manual) Flash Chip Selection\n"
      "            -----------------------------------------------\n");
 
@@ -1898,9 +2955,11 @@ main (int argc, char **argv)
   int j;
 
   printf ("\n");
-  printf ("==========================================\n");
-  printf (" EJTAG Debrick Utility v2.1.4-Tornado-MOD \n");
-  printf ("==========================================\n\n");
+  printf ("==============================================\n");
+  printf (" EJTAG Debrick Utility v3.0.1 Tornado-MOD \n");
+  printf ("==============================================\n\n");
+
+
 
   if (argc < 2)
     {
@@ -1927,6 +2986,7 @@ main (int argc, char **argv)
       run_option = 1;
       strcpy (AREA_NAME, "CFE128");
     }
+
   if (strcasecmp (choice, "-backup:nvram") == 0)
     {
       run_option = 1;
@@ -1953,11 +3013,40 @@ main (int argc, char **argv)
       run_option = 1;
       strcpy (AREA_NAME, "BSP");
     }
-
+  if (strcasecmp (choice, "-backup:red") == 0)
+    {
+      run_option = 1;
+      strcpy (AREA_NAME, "RED");
+    }
+  if (strcasecmp (choice, "-backup:wgrv8bdata") == 0)
+    {
+      run_option = 1;
+      strcpy (AREA_NAME, "WGRV8BDATA");
+    }
+  if (strcasecmp (choice, "-backup:wgrv9bdata") == 0)
+    {
+      run_option = 1;
+      strcpy (AREA_NAME, "WGRV9BDATA");
+    }
   if (strcasecmp (choice, "-erase:cfe") == 0)
     {
       run_option = 2;
       strcpy (AREA_NAME, "CFE");
+    }
+  if (strcasecmp (choice, "-erase:wgrv9bdata") == 0)
+    {
+      run_option = 2;
+      strcpy (AREA_NAME, "WGRV9BDATA");
+    }
+  if (strcasecmp (choice, "-erase:wgrv9nvram") == 0)
+    {
+      run_option = 2;
+      strcpy (AREA_NAME, "WGRV9NVRAM");
+    }
+  if (strcasecmp (choice, "-erase:wgrv8bdata") == 0)
+    {
+      run_option = 2;
+      strcpy (AREA_NAME, "WGRV8BDATA");
     }
   if (strcasecmp (choice, "-erase:cf1") == 0)
     {
@@ -1995,7 +3084,16 @@ main (int argc, char **argv)
       run_option = 2;
       strcpy (AREA_NAME, "BSP");
     }
+  if (strcasecmp (choice, "-spi_chiperase") == 0)
+    {
+      run_option = 6;
 
+    }
+  if (strcasecmp (choice, "-erase:red") == 0)
+    {
+      run_option = 2;
+      strcpy (AREA_NAME, "RED");
+    }
   if (strcasecmp (choice, "-flash:cfe") == 0)
     {
       run_option = 3;
@@ -2015,6 +3113,16 @@ main (int argc, char **argv)
     {
       run_option = 3;
       strcpy (AREA_NAME, "NVRAM");
+    }
+  if (strcasecmp (choice, "-flash:wgrv8bdata") == 0)
+    {
+      run_option = 3;
+      strcpy (AREA_NAME, "WGRV8BDATA");
+    }
+  if (strcasecmp (choice, "-flash:wgrv9bdata") == 0)
+    {
+      run_option = 3;
+      strcpy (AREA_NAME, "WGRV9BDATA");
     }
   if (strcasecmp (choice, "-flash:kernel") == 0)
     {
@@ -2038,10 +3146,27 @@ main (int argc, char **argv)
       strcpy (AREA_NAME, "BSP");
     }
 
+  if (strcasecmp (choice, "-flash:red") == 0)
+    {
+      run_option = 3;
+      strcpy (AREA_NAME, "RED");
+    }
   if (strcasecmp (choice, "-probeonly") == 0)
     {
       run_option = 4;
     }
+  if (strcasecmp (choice, "-probeonly:custom") == 0)
+    {
+      run_option = 4;
+      strcpy (AREA_NAME, "CUSTOM");
+    }
+
+  if (strncasecmp (choice, "-load:", 5) == 0)
+    {
+      run_option = 5;
+      strcpy (AREA_NAME, &choice[6]);
+    }
+
 
 
   if (run_option == 0)
@@ -2078,10 +3203,13 @@ main (int argc, char **argv)
 	    selected_fc = strtoul (((char *) choice + 4), NULL, 10);
 	  else if (strcasecmp (choice, "/bypass") == 0)
 	    bypass = 1;
+	  else if (strcasecmp (choice, "/reboot") == 0)
+	    issue_reboot = 1;
 	  else if (strncasecmp (choice, "/window:", 8) == 0)
 	    {
 	      selected_window = strtoul (((char *) choice + 8), NULL, 16);
 	      custom_options++;
+	      probe_options++;
 	    }
 	  else if (strncasecmp (choice, "/start:", 7) == 0)
 	    {
@@ -2103,23 +3231,40 @@ main (int argc, char **argv)
 	    wiggler = 1;
 	  else if (strcasecmp (choice, "/st5") == 0)
 	    speedtouch = 1;
+	  else if (strcasecmp (choice, "/flash_debug") == 0)
+	    Flash_DEBUG = 1;
+	  else if (strncasecmp (choice, "/freq:", 6) == 0)
+	    frequency = strtoul (((char *) choice + 6), NULL, 10);
+	  else if (strcasecmp (choice, "/xbit") == 0)
+	    xbit = 1;
+	  else if (strcasecmp (choice, "/swap_endian") == 0)
+	    swap_endian = 1;
 	  else
 	    {
 	      show_usage ();
 	      printf ("\n*** ERROR - Invalid <option> specified ***\n\n");
 	      exit (1);
 	    }
+
 	  j++;
 	}
     }
 
   if (strcasecmp (AREA_NAME, "CUSTOM") == 0)
     {
-      if ((custom_options != 0) && (custom_options != 4))
+      if ((run_option != 4) && (custom_options != 0) && (custom_options != 4))
 	{
 	  show_usage ();
 	  printf
 	    ("\n*** ERROR - 'CUSTOM' also requires '/window' '/start' and '/length' options ***\n\n");
+	  exit (1);
+	}
+
+      if ((run_option == 4) && (probe_options != 1))
+	{
+	  show_usage ();
+	  printf
+	    ("\n*** ERROR - 'PROBEONLY:CUSTOM' requires '/window' option ***\n\n");
 	  exit (1);
 	}
     }
@@ -2128,6 +3273,7 @@ main (int argc, char **argv)
   // ----------------------------------
   // Detect CPU
   // ----------------------------------
+
   chip_detect ();
 
 
@@ -2137,31 +3283,40 @@ main (int argc, char **argv)
   check_ejtag_features ();
 
 
+
   // ----------------------------------
   // Reset State Machine For Good Measure
   // ----------------------------------
   test_reset ();
 
 
-  // ----------------------------------
-  // Reset Processor and Peripherals
-  // ----------------------------------
   printf ("Issuing Processor / Peripheral Reset ... ");
   if (issue_reset)
     {
-      set_instr (INSTR_CONTROL);
-      ctrl_reg = ReadWriteData (PRRST | PERRST);
-      printf ("Done\n");
+      if ((proc_id & 0xfffffff) == 0x535417f)
+	{
+	  set_instr (INSTR_CONTROL);
+	  WriteData (PRRST | PERRST);
+	  WriteData (0);
+	  printf ("Done\n");
+	}
+      else
+	{
+	  set_instr (INSTR_CONTROL);
+	  ctrl_reg = ReadWriteData (PRRST | PERRST);
+	  printf ("Done\n");
+	}
+
     }
   else
     printf ("Skipped\n");
-
 
   // ----------------------------------
   // Enable Memory Writes
   // ----------------------------------
   // Always skip for EJTAG versions 2.5 and 2.6 since they do not support DMA transactions.
   // Memory Protection bit only applies to EJTAG 2.0 based chips.
+
   if (ejtag_version != 0)
     issue_enable_mw = 0;
   printf ("Enabling Memory Writes ... ");
@@ -2192,6 +3347,7 @@ main (int argc, char **argv)
   else
     printf ("Skipped\n");
 
+
   // ----------------------------------
   // Clear Watchdog
   // ----------------------------------
@@ -2202,23 +3358,27 @@ main (int argc, char **argv)
     {
       if (proc_id == 0x00000001)
 	{
-	  ejtag_write (0xbc00300, 0xffffffff);
+
+	  ejtag_write (0xbc003000, 0xffffffff);
 
 	  ejtag_write (0xbc003008, 0);	// Atheros AR5312
 
 	  ejtag_write (0xbc004000, 0x05551212);
 
-	  printf ("Done");
+	  printf ("Done\n");
 	}
       else
-
-	ejtag_write (0xb8000080, 0);
-
-
-      printf ("Done");
+	{
+	  ejtag_write (0xb8000080, 0);
+	  printf ("Done\n");
+	}
     }
   else
     printf ("Skipped\n");
+
+
+  isbrcm ();
+  //mscan();
 
   //------------------------------------
   // Enable Flash Read/Write for Atheros
@@ -2227,11 +3387,44 @@ main (int argc, char **argv)
   if (proc_id == 0x00000001)
     {
       printf ("\nEnabling Atheros Flash Read/Write ... ");
-      ejtag_write (0xb8400000, 0x100e3ce1);
+      //ejtag_write(0xb8400000, 0x000e3ce1); //8bit
+      ejtag_write (0xb8400000, 0x100e3ce1);	//16bit
       printf ("Done\n");
-
     }
 
+
+  //----------------------------------------------------------------
+  // Enable Flash Read/Write for Atheros and check Revision Register
+  //
+  // Ejtag IDCODE does not tell us what Atheros Processor it has found..
+  // so lets try to detect via the Revision Register
+
+
+  if (proc_id == 0x00000001)
+    {
+      printf ("\n.RE-Probing Atheros processor....");
+
+      uint32_t ARdevid;
+
+      ARdevid =
+	(ejtag_read (AR5315_SREV) & AR5315_REV_MAJ) >> AR5315_REV_MAJ_S;
+
+
+      switch (ARdevid)
+	{
+	case 0x9:
+	  printf ("\n..Found a Atheros AR2317\n");
+	  break;
+	  /* FIXME: how can we detect AR2316? */
+	case 0x8:
+	  printf ("\n..Found a Atheros AR2316\n");
+	  break;
+	default:
+	  //mips_machtype = ATHEROS AR2315;
+	  break;
+	}
+
+    }
 
   // ----------------------------------
   // Flash Chip Detection
@@ -2245,6 +3438,7 @@ main (int argc, char **argv)
   // ----------------------------------
   // Execute Requested Operation
   // ----------------------------------
+
   if ((flash_size > 0) && (AREA_LENGTH > 0))
     {
       if (run_option == 1)
@@ -2253,10 +3447,50 @@ main (int argc, char **argv)
 	run_erase (AREA_NAME, AREA_START, AREA_LENGTH);
       if (run_option == 3)
 	run_flash (AREA_NAME, AREA_START, AREA_LENGTH);
-      if (run_option == 4);	// Probe was already run so nothing else needed
+      //  if (run_option == 4 ) {};  // Probe was already run so nothing else needed
     }
 
+  if (run_option == 5)
+    run_load (AREA_NAME, 0x80040000);
+  if (run_option == 6)
+    spi_chiperase (0x1fc00000);
+
+
   printf ("\n\n *** REQUESTED OPERATION IS COMPLETE ***\n\n");
+
+
+  if (issue_reboot)
+    {
+      printf ("Reset Processor ...\n");
+
+      ExecuteDebugModule (pracc_read_depc);
+      printf ("DEPC: 0x%08x\n", data_register);
+
+      address_register = 0xA0000000;
+      data_register = 0xBFC00000;
+      //data_register    -= 4;
+      ExecuteDebugModule (pracc_write_depc);
+
+      // verify my return address
+      ExecuteDebugModule (pracc_read_depc);
+      printf ("DEPC: 0x%08x\n", data_register);
+
+    }
+
+
+  if (proc_id == 0x00000001)
+    {
+
+      printf ("Resuming Processor ...\n");
+      return_from_debug_mode ();
+
+      set_instr (INSTR_RESET);
+      test_reset ();
+
+      set_instr (INSTR_CONTROL);
+      ctrl_reg = ReadWriteData (PRRST | PERRST);
+      printf (" ECR: 0x%08x\n", ctrl_reg);
+    }
 
   chip_shutdown ();
 
