@@ -1,9 +1,29 @@
 // **************************************************************************
 //
-//  WRT54G.H - Header file for the WRT54G/GS EJTAG Debrick Utility  v4.5
+//  WRT54G.H - Header file for the WRT54G/GS EJTAG Debrick Utility  v4.8
 //
 //  Note:
 //  This program is for De-Bricking the WRT54G/GS routers
+//
+//  New for v4.8 - Added 2 new Flash Chip Parts to the list:
+//                     - SST39VF6401B 4Mx16 BotB     (8MB)
+//                     - SST39VF6402B 4Mx16 TopB     (8MB)
+//               - Added the following New Switch Options
+//                     - /wiggler ........... use wiggler cable
+//
+//  New for v4.7 - Added 2 new Flash Chip Parts to the list:
+//                     - K8D3216UTC  2Mx16 TopB     (4MB)
+//                     - K8D3216UBC  2Mx16 BotB     (4MB)
+//
+//  New for v4.6 - Added Common Flash Chip Polling routine
+//               - Added "-probeonly" parameter (good idea jmranger)
+//               - Added Chip ID for Broadcom BCM4704 Rev 8 CPU
+//               - Added TRST Signal Support for Wiggler Cables
+//               - Added Chip ID for BRECIS MSP2007-CA-A1 CPU
+//               - Added Experimental 1MB Flash Chip Offsets
+//               - Added 2 new Flash Chip Parts to the list:
+//                     - MX29LV800BTC 512kx16 TopB  (1MB)
+//                     - MX29LV800BTC 512kx16 BotB  (1MB)
 //
 //  New for v4.5 - Added 2 new Flash Chip Parts to the list:
 //                     - K8D1716UTC 1Mx16 TopB      (2MB)
@@ -104,23 +124,18 @@
 
 #define RETRY_ATTEMPTS 16
 
-// ------------------------------------------------------
-// --- Choose only one cable specific section below
-// ------------------------------------------------------
-//
 // --- Xilinx Type Cable ---
 #define TDI     0
 #define TCK     1
 #define TMS     2
 #define TDO     4
-//
+
 // --- Wiggler Type Cable ---
-// #define TDI      3
-// #define TCK      2
-// #define TMS      1
-// #define TDO      7
-//
-// ------------------------------------------------------
+#define WTDI      3
+#define WTCK      2
+#define WTMS      1
+#define WTDO      7
+#define WTRST_N   4
 
 // --- Some EJTAG Instruction Registers ---
 #define INSTR_EXTEST    0x00
@@ -157,12 +172,14 @@
 #define DMA_WORD        0x00000100  //DMA transfer size WORD
 #define DMA_TRIPLEBYTE  0x00000180  //DMA transfer size TRIPLEBYTE
 
+#define  size4K        0x1000
 #define  size8K        0x2000
 #define  size16K       0x4000
 #define  size32K       0x8000
 #define  size64K       0x10000
 #define  size128K      0x20000
 
+#define  size1MB       0x100000
 #define  size2MB       0x200000
 #define  size4MB       0x400000
 #define  size8MB       0x800000
@@ -172,6 +189,8 @@
 #define  CMD_TYPE_SCS  0x02
 #define  CMD_TYPE_AMD  0x03
 #define  CMD_TYPE_SST  0x04
+
+#define  STATUS_READY  0x0080
 
 
 // EJTAG DEBUG Unit Vector on Debug Break

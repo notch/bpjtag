@@ -2,6 +2,32 @@
 // WRT54G EJTAG DeBrick Utility ChangeLog
 // =======================================
 
+*** New for v4.8 ***
+
+* Added 2 new Flash Chip Parts to the list:
+      - SST39VF6401B 4Mx16 BotB     (8MB)
+      - SST39VF6402B 4Mx16 TopB     (8MB)
+* Added the following New Switch Options
+      - /wiggler ........... use wiggler cable
+
+*** New for v4.7 ***
+
+* Added 6 new Flash Chip Parts to the list:
+      - K8D3216UTC  2Mx16 TopB     (4MB)
+      - K8D3216UBC  2Mx16 BotB     (4MB)
+
+*** New for v4.6 ***
+
+* Added Common Flash Chip Polling routine
+* Added "-probeonly" parameter (good idea jmranger)
+* Added Chip ID for Broadcom BCM4704 Rev 8 CPU
+* Added TRST Signal Support for Wiggler Cables
+* Added Chip ID for BRECIS MSP2007-CA-A1 CPU
+* Added Experimental 1MB Flash Chip Offsets
+* Added 2 new Flash Chip Parts to the list:
+      - MX29LV800BTC 512kx16 TopB  (1MB)
+      - MX29LV800BTC 512kx16 BotB  (1MB)
+
 *** New for v4.5 ***
 
 * Added 6 new Flash Chip Parts to the list:
