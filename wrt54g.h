@@ -1,9 +1,13 @@
 // **************************************************************************
 //
-//  WRT54G.H - Header file for the WRT54G/GS EJTAG Debrick Utility  v4.4
+//  WRT54G.H - Header file for the WRT54G/GS EJTAG Debrick Utility  v4.5
 //
 //  Note:
 //  This program is for De-Bricking the WRT54G/GS routers
+//
+//  New for v4.5 - Added 2 new Flash Chip Parts to the list:
+//                     - K8D1716UTC 1Mx16 TopB      (2MB)
+//                     - K8D1716UBC 1Mx16 BotB      (2MB)
 //
 //  New for v4.4 - Added PrAcc routines to support additional MIPS chips
 //                 without the ability to use EJTAG DMA Access

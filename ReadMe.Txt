@@ -1,8 +1,15 @@
 // =======================================
-// WRT54G EJTAG DeBrick Utility   v4.3
+// WRT54G EJTAG DeBrick Utility ChangeLog
 // =======================================
 
+*** New for v4.5 ***
+
+* Added 6 new Flash Chip Parts to the list:
+      - K8D1716UTC 1Mx16 TopB      (2MB)
+      - K8D1716UBC 1Mx16 BotB      (2MB)
+
 *** New for v4.4 ***
+
 * Added PrAcc routines to support additional MIPS chips
   without the ability to use EJTAG DMA Access
 * Added Chip ID for Broadcom BCM5365 Rev 1 CPU

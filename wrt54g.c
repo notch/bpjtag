@@ -1,9 +1,13 @@
 // **************************************************************************
 //
-//  WRT54G.C - WRT54G/GS EJTAG Debrick Utility  v4.4
+//  WRT54G.C - WRT54G/GS EJTAG Debrick Utility  v4.5
 //
 //  Note:
 //  This program is for De-Bricking the WRT54G/GS and other misc routers.
+//
+//  New for v4.5 - Added 2 new Flash Chip Parts to the list:
+//                     - K8D1716UTC 1Mx16 TopB      (2MB)
+//                     - K8D1716UBC 1Mx16 BotB      (2MB)
 //
 //  New for v4.4 - Added PrAcc routines to support additional MIPS chips
 //                 without the ability to use EJTAG DMA Access
@@ -316,6 +320,9 @@ flash_chip_type  flash_chip_list[] = {
    { 0x00BF, 0x235A, size4MB, CMD_TYPE_SST, "SST39VF3202 2Mx16 TopB     (4MB)"   ,128,size32K,   0,0,          0,0,        0,0        },
    { 0x00BF, 0x236B, size4MB, CMD_TYPE_SST, "SST39VF6401 4Mx16 BotB     (8MB)"   ,256,size32K,   0,0,          0,0,        0,0        },
    { 0x00BF, 0x236A, size4MB, CMD_TYPE_SST, "SST39VF6402 4Mx16 TopB     (8MB)"   ,256,size32K,   0,0,          0,0,        0,0        },
+   // --- Add a few new Flash Chip Defintions ---
+   { 0x00EC, 0x2275, size2MB, CMD_TYPE_AMD, "K8D1716UTC  1Mx16 TopB     (2MB)"   ,31,size64K,    8,size8K,     0,0,        0,0        },
+   { 0x00EC, 0x2277, size2MB, CMD_TYPE_AMD, "K8D1716UBC  1Mx16 BotB     (2MB)"   ,8,size8K,      31,size64K,   0,0,        0,0        },
    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
    };
 
@@ -1498,7 +1505,7 @@ int main(int argc, char** argv)
 
     printf("\n");
     printf("====================================\n");
-    printf("WRT54G/GS EJTAG Debrick Utility v4.4\n");
+    printf("WRT54G/GS EJTAG Debrick Utility v4.5\n");
     printf("====================================\n\n");
 
     if (argc < 2)
