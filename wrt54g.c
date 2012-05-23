@@ -5,6 +5,20 @@
 //  Note:
 //  This program is for De-Bricking the WRT54G/GS and other misc routers.
 //
+//  New for cshore2 - Added 1 new Flash Chip Parts to the list:
+//                     - MX29LV640MB 4Mx16 BotB    (8MB)
+//                  - Fixed bug in wiggler cable support
+//                     - Wiggler uses Pin 11 not Pin 13
+//
+//  New for cshore1 - Added 1 new Flash Chip Parts to the list:
+//                     - MBM29DL32BF 2Mx16 BotB      (4MB)
+//                  - Added the following New Switch Options
+//                     - /bigendian ......... CPU is bigendian
+//                     - /bigendianfile ..... image file is bigendian
+//                  - Added support for 64k and 128k CFE
+//                  - Added support for DMA on bigendian CPU (using 
+//                       the new /bigendian swith)
+//
 //  New for v4.8 - Added 2 new Flash Chip Parts to the list:
 //                     - SST39VF6401B 4Mx16 BotB     (8MB)
 //                     - SST39VF6402B 4Mx16 TopB     (8MB)
@@ -90,18 +104,30 @@
 //              Required Parameter
 //              ------------------
 //              -backup:cfe
+//              -backup:cfe64k
+//              -backup:cfe128k
 //              -backup:nvram
 //              -backup:kernel
+//              -backup:kernel64k
+//              -backup:kernel128k
 //              -backup:wholeflash
 //              -backup:custom
 //              -erase:cfe
+//              -erase:cfe64k
+//              -erase:cfe128k
 //              -erase:nvram
 //              -erase:kernel
+//              -erase:kernel64k
+//              -erase:kernel128
 //              -erase:wholeflash
 //              -erase:custom
 //              -flash:cfe
+//              -flash:cfe64k
+//              -flash:cfe128k
 //              -flash:nvram
 //              -flash:kernel
+//              -flash:kernel64k
+//              -flash:kernel128k
 //              -flash:wholeflash
 //              -flash:custom
 //              -probeonly
@@ -122,6 +148,8 @@
 //              /skipdetect ........ skip auto detection of CPU Chip ID
 //              /instrlen:XX ....... set instruction length manually
 //              /wiggler ........... use wiggler cable
+//              /bigendian.......... device CPU is bigendian
+//              /bigendianfile...... rw big endian image files
 //              /fc:XX = Optional (Manual) Flash Chip Selection
 //
 // **************************************************************************
@@ -183,6 +211,8 @@ int silent_mode      = 0;
 int skipdetect       = 0;
 int instrlen         = 0;
 int wiggler          = 0;
+int bigendian        = 0;
+int bigendianfile    = 0;
 
 
 char            flash_part[128];
@@ -221,7 +251,7 @@ processor_chip_type  processor_chip_list[] = {
    { 0x0535017F, 8, "Broadcom BCM5350 Rev 1 CPU" },
    { 0x0535217F, 8, "Broadcom BCM5352 Rev 1 CPU" },
    { 0x0536517F, 8, "Broadcom BCM5365 Rev 1 CPU" },         // BCM5365 Not Completely Verified Yet
-   { 0x0634817F, 5, "Broadcom BCM6348 Rev 1 CPU" },   
+   { 0x0634817F, 5, "Broadcom BCM6348 Rev 1 CPU" },         // is bigendian  
    { 0x0634517F, 5, "Broadcom BCM6345 Rev 1 CPU" },         // BCM6345 Not Completely Verified Yet
    { 0x0000100F, 5, "TI AR7WRD TNETD7300GDU Rev 1 CPU" },   // TI AR7WRD Only Partially Verified
    { 0x0470417F, 8, "Broadcom BCM4704 Rev 8 CPU" },         // BCM4704 chip (used in the WRTSL54GS units)
@@ -248,11 +278,35 @@ flash_area_type  flash_area_list[] = {
    { size8MB,    "CFE",         0x1C000000,  0x40000 },
    { size16MB,   "CFE",         0x1C000000,  0x40000 },
 
+   { size1MB,    "CFE64",         0x1FC00000,  0x10000 },
+   { size2MB,    "CFE64",         0x1FC00000,  0x10000 },
+   { size4MB,    "CFE64",         0x1FC00000,  0x10000 },
+   { size8MB,    "CFE64",         0x1C000000,  0x10000 },
+   { size16MB,   "CFE64",         0x1C000000,  0x10000 },
+
+   { size1MB,    "CFE128",         0x1FC00000,  0x20000 },
+   { size2MB,    "CFE128",         0x1FC00000,  0x20000 },
+   { size4MB,    "CFE128",         0x1FC00000,  0x20000 },
+   { size8MB,    "CFE128",         0x1C000000,  0x20000 },
+   { size16MB,   "CFE128",         0x1C000000,  0x20000 },
+
    { size1MB,    "KERNEL",      0x1FC40000,  0xB0000  },
    { size2MB,    "KERNEL",      0x1FC40000,  0x1B0000 },
    { size4MB,    "KERNEL",      0x1FC40000,  0x3B0000 },
    { size8MB,    "KERNEL",      0x1C040000,  0x7A0000 },
    { size16MB,   "KERNEL",      0x1C040000,  0x7A0000 },
+
+   { size1MB,    "KERNEL64",      0x1FC10000,  0xE0000  },
+   { size2MB,    "KERNEL64",      0x1FC10000,  0x1E0000 },
+   { size4MB,    "KERNEL64",      0x1FC10000,  0x3E0000 },
+   { size8MB,    "KERNEL64",      0x1C010000,  0x7D0000 },
+   { size16MB,   "KERNEL64",      0x1C010000,  0x7D0000 },
+
+   { size1MB,    "KERNEL128",      0x1FC20000,  0xD0000  },
+   { size2MB,    "KERNEL128",      0x1FC20000,  0x1D0000 },
+   { size4MB,    "KERNEL128",      0x1FC20000,  0x3D0000 },
+   { size8MB,    "KERNEL128",      0x1C020000,  0x7C0000 },
+   { size16MB,   "KERNEL128",      0x1C020000,  0x7C0000 },
 
    { size1MB,    "NVRAM",       0x1FCF0000,  0x10000 },
    { size2MB,    "NVRAM",       0x1FDF0000,  0x10000 },
@@ -361,6 +415,12 @@ flash_chip_type  flash_chip_list[] = {
    // --- Add a few new Flash Chip Definitions ---
    { 0x00BF, 0x236D, size4MB, CMD_TYPE_SST, "SST39VF6401B 4Mx16 BotB    (8MB)"   ,256,size32K,   0,0,          0,0,        0,0        },
    { 0x00BF, 0x236C, size4MB, CMD_TYPE_SST, "SST39VF6402B 4Mx16 TopB    (8MB)"   ,256,size32K,   0,0,          0,0,        0,0        },
+   // --- Add a new Flash Chip Definition ---
+   // id's may be bigendian instead of littleendian
+   { 0x1000, 0x0278, size4MB, CMD_TYPE_AMD, "MBM29DL32BF 2Mx16 BotB     (4MB)",   8,size8K,     7,size64K,    24, size64K, 32,size64K },
+   // --- Add a new Flash Chip Definition ---
+   { 0x00c2, 0x227e, size8MB, CMD_TYPE_AMD, "MX29LV640MB 4Mx16 BotB    (8MB)"   ,8,size8K, 127,size64K,      0,0,        0,0   },
+   // --- End of Flash Chip Definitions
    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
    };
 
@@ -445,10 +505,11 @@ static unsigned char clockin(int tms, int tdi)
       ioctl(pfd, PPRSTATUS, &data);  
    #endif
 
-   data ^= 0x80;
-   data >>= TDO;
+   // Busy invertieren, um gleiche Logik zu erhalten. Wiggler bug fixed
+   data ^= (1 << WTDO);
+   data >>= wiggler ? WTDO : TDO;
    data &= 1;
-
+   
    return data;
 }
 
@@ -537,6 +598,7 @@ static unsigned int ejtag_read(unsigned int addr)
 {
    if (USE_DMA) return(ejtag_dma_read(addr));
    else return(ejtag_pracc_read(addr));
+
 }
 
 
@@ -544,6 +606,7 @@ static unsigned int ejtag_read_h(unsigned int addr)
 {
    if (USE_DMA) return(ejtag_dma_read_h(addr));
    else return(ejtag_pracc_read_h(addr));
+
 }
 
 
@@ -626,9 +689,13 @@ begin_ejtag_dma_read_h:
     }
 
     // Handle the bigendian/littleendian
-    if ( addr & 0x2 )  data = (data>>16)&0xffff ;
-    else               data = (data&0x0000ffff) ;
-
+    if (!bigendian) /* littleendian */ {
+      if ( addr & 0x2 )  data = (data>>16)&0xffff ; /* hi-word = high address */
+      else               data = (data&0x0000ffff) ;
+    } else /* bigendian */ {
+      if ( addr & 0x2 )  data = (data&0x0000ffff) ; /* low-word = high address */
+      else               data = (data>>16)&0xffff ;
+    }
     return(data);
 }
 
@@ -717,6 +784,7 @@ static unsigned int ejtag_pracc_read_h(unsigned int addr)
    address_register = addr | 0xA0000000;  // Force to use uncached segment
    data_register    = 0x0;
    ExecuteDebugModule(pracc_readhalf_code_module);
+
    return(data_register);
 }
 
@@ -965,13 +1033,18 @@ void run_backup(char *filename, unsigned int start, unsigned int length)
            if ((addr&0xF) == 0)  printf("[%3d%% Backed Up]   %08x: ", percent_complete, addr);
          
         data = ejtag_read(addr);
-        fwrite( (unsigned char*) &data, 1, sizeof(data), fd);
+
+	if (bigendianfile) {
+	  data = swap_bytes(data, 4);
+	}
+
+       fwrite( (unsigned char*) &data, 1, sizeof(data), fd);
 
        if (silent_mode)  printf("%4d%%   bytes = %d\r", percent_complete, counter);
        else              printf("%08x%c", data, (addr&0xF)==0xC?'\n':' ');
        
        fflush(stdout); 
-      }
+    }
     fclose(fd);
 
     printf("Done  (%s saved to Disk OK)\n\n",newfilename);
@@ -991,7 +1064,7 @@ void run_backup(char *filename, unsigned int start, unsigned int length)
 
 void run_flash(char *filename, unsigned int start, unsigned int length)
 {
-    unsigned int addr, data ;
+    unsigned int addr, data;
     FILE *fd ;
     int counter = 0;
     int percent_complete = 0;
@@ -1006,7 +1079,6 @@ void run_flash(char *filename, unsigned int start, unsigned int length)
         fprintf(stderr,"Could not open %s for reading\n", filename);
         exit(1);
     }
-
     printf("=========================\n");
     printf("Flashing Routine Started\n");
     printf("=========================\n");
@@ -1022,6 +1094,11 @@ void run_flash(char *filename, unsigned int start, unsigned int length)
            if ((addr&0xF) == 0)  printf("[%3d%% Flashed]   %08x: ", percent_complete, addr);
 
         fread( (unsigned char*) &data, 1,sizeof(data), fd);
+
+	if (bigendianfile) {
+	  data = swap_bytes(data, 4);
+	}
+
         // Erasing Flash Sets addresses to 0xFF's so we can avoid writing these (for speed)
         if (issue_erase) {
            if (!(data == 0xFFFFFFFF))
@@ -1088,6 +1165,8 @@ void identify_flash_part(void)
 
    // Funky AMD Chip
    if (((vendid & 0x00ff) == 0x0001) && (devid == 0x227E))  devid = ejtag_read_h(FLASH_MEMORY_START+0x1E);  // Get real devid
+
+   //   printf("vendid: %x, devid: %x\n", vendid, devid);
 
    while (flash_chip->vendid)
    {
@@ -1187,6 +1266,19 @@ void sflash_config(void)
 
 }
 
+unsigned int swap_bytes(unsigned int data, int num_bytes) {
+  unsigned int datab[4], i;
+
+  for (i = 0; i < num_bytes; i++) {
+    datab[i] = (data >>((num_bytes - i - 1) * 8) & 0xFF);
+  }
+
+  data = 0x0;
+  for (i = 0; i < num_bytes; i++) {
+    data = (data | (datab[i] <<(8 * i)));
+  }
+  return data;
+}
 
 void sflash_probe(void)
 {
@@ -1392,6 +1484,7 @@ void sflash_reset(void)
 void sflash_write_word(unsigned int addr, unsigned int data)
 {
 unsigned int data_lo, data_hi;
+unsigned int swap;
 
     if (USE_DMA)
     {
@@ -1404,6 +1497,12 @@ unsigned int data_lo, data_hi;
     	 // PrAcc Does Not
        data_lo = (data & 0xFFFF);
        data_hi = ((data >> 16) & 0xFFFF);
+
+       if (bigendian) {
+	 swap = data_lo;
+	 data_lo = data_hi;
+	 data_hi = swap;
+       }
     }
 
     if (cmd_type == CMD_TYPE_AMD)
@@ -1415,7 +1514,11 @@ unsigned int data_lo, data_hi;
       ejtag_write_h(addr, data_lo);
 
       // Wait for Completion
-      sflash_poll(addr, (data & 0xffff));
+      if (!bigendian) {
+	sflash_poll(addr, (data & 0xffff));
+      } else {
+	sflash_poll(addr, ((data >> 16) & 0xffff));
+      }
 
       // Now Handle Other Half Of Word
       ejtag_write_h(FLASH_MEMORY_START+(0x555 << 1), 0x00AA00AA);
@@ -1424,7 +1527,11 @@ unsigned int data_lo, data_hi;
       ejtag_write_h(addr+2, data_hi);
 
       // Wait for Completion
-      sflash_poll(addr+2, ((data >> 16) & 0xffff));
+      if (!bigendian) {
+	sflash_poll(addr+2, ((data >> 16) & 0xffff));
+      } else {
+	sflash_poll(addr+2, (data & 0xffff));
+      }
     }
 
     if (cmd_type == CMD_TYPE_SST)
@@ -1436,7 +1543,11 @@ unsigned int data_lo, data_hi;
       ejtag_write_h(addr, data_lo);
 
       // Wait for Completion
-      sflash_poll(addr, (data & 0xffff));
+      if (!bigendian) {
+	sflash_poll(addr, (data & 0xffff));
+      } else {
+	sflash_poll(addr, ((data >> 16) & 0xffff));
+      }
 
       // Now Handle Other Half Of Word
       ejtag_write_h(FLASH_MEMORY_START+(0x5555 << 1), 0x00AA00AA);
@@ -1445,7 +1556,11 @@ unsigned int data_lo, data_hi;
       ejtag_write_h(addr+2, data_hi);
 
       // Wait for Completion
-      sflash_poll(addr+2, ((data >> 16) & 0xffff));
+      if (!bigendian) {
+	sflash_poll(addr+2, ((data >> 16) & 0xffff));
+      } else {
+	sflash_poll(addr+2, (data & 0xffff));
+      }
     }
 
     if ((cmd_type == CMD_TYPE_BSC) || (cmd_type == CMD_TYPE_SCS))
@@ -1500,19 +1615,31 @@ void show_usage(void)
 
            "            Required Parameter\n"
            "            ------------------\n"
-           "            -backup:cfe\n"
+           "            -backup:cfe (256k cfe)\n"
+           "            -backup:cfe64k (64k cfe)\n"
+           "            -backup:cfe128k (128k cfe)\n"
            "            -backup:nvram\n"
-           "            -backup:kernel\n"
+           "            -backup:kernel (256k cfe)\n"
+           "            -backup:kernel64k (64k cfe)\n"
+           "            -backup:kernel128k (128k cfe)\n"
            "            -backup:wholeflash\n"
            "            -backup:custom\n"
-           "            -erase:cfe\n"
+           "            -erase:cfe (256k cfe)\n"
+	   "            -erase:cfe64k (64k cfe)\n"
+           "            -erase:cfe128k (128k cfe)\n"
            "            -erase:nvram\n"
-           "            -erase:kernel\n"
+           "            -erase:kernel (256k cfe)\n"
+           "            -erase:kernel64k (64k cfe)\n"
+           "            -erase:kernel128k (128k cfe)\n"
            "            -erase:wholeflash\n"
            "            -erase:custom\n"
-           "            -flash:cfe\n"
+           "            -flash:cfe (256k cfe)\n"
+           "            -flash:cfe64k (64k cfe)\n"
+           "            -flash:cfe128k (128k cfe)\n"
            "            -flash:nvram\n"
-           "            -flash:kernel\n"
+           "            -flash:kernel (256k cfe)\n"
+           "            -flash:kernel64k (64k cfe)\n"
+           "            -flash:kernel128k (128k cfe)\n"
            "            -flash:wholeflash\n"
            "            -flash:custom\n"
            "            -probeonly\n\n"
@@ -1533,9 +1660,12 @@ void show_usage(void)
            "            /silent ............ prevent scrolling display of data\n"
            "            /skipdetect ........ skip auto detection of CPU Chip ID\n"
            "            /instrlen:XX ....... set instruction length manually\n"
-           "            /wiggler ........... use wiggler cable\n\n"
+           "            /wiggler ........... use wiggler cable\n"
+	   "            /bigendian ......... cpu is bigendian not littleendian\n"
+           "            /bigendianfile...... rw bigendian files\n\n"
 
            "            /fc:XX = Optional (Manual) Flash Chip Selection\n"
+
            "            -----------------------------------------------\n");
 
            while (flash_chip->vendid)
@@ -1590,20 +1720,32 @@ int main(int argc, char** argv)
     run_option = 0;
 
     if (strcasecmp(choice,"-backup:cfe")==0)         { run_option = 1;  strcpy(AREA_NAME, "CFE");        }
+    if (strcasecmp(choice,"-backup:cfe64k")==0)      { run_option = 1;  strcpy(AREA_NAME, "CFE64");      }
+    if (strcasecmp(choice,"-backup:cfe128k")==0)     { run_option = 1;  strcpy(AREA_NAME, "CFE128");     }
     if (strcasecmp(choice,"-backup:nvram")==0)       { run_option = 1;  strcpy(AREA_NAME, "NVRAM");      }
     if (strcasecmp(choice,"-backup:kernel")==0)      { run_option = 1;  strcpy(AREA_NAME, "KERNEL");     }
+    if (strcasecmp(choice,"-backup:kernel64k")==0)   { run_option = 1;  strcpy(AREA_NAME, "KERNEL64");   }
+    if (strcasecmp(choice,"-backup:kernel128k")==0)  { run_option = 1;  strcpy(AREA_NAME, "KERNEL128");  }
     if (strcasecmp(choice,"-backup:wholeflash")==0)  { run_option = 1;  strcpy(AREA_NAME, "WHOLEFLASH"); }
     if (strcasecmp(choice,"-backup:custom")==0)      { run_option = 1;  strcpy(AREA_NAME, "CUSTOM");  custom_options++; }
 
     if (strcasecmp(choice,"-erase:cfe")==0)          { run_option = 2;  strcpy(AREA_NAME, "CFE");        }
+    if (strcasecmp(choice,"-erase:cfe64k")==0)       { run_option = 2;  strcpy(AREA_NAME, "CFE64");      }
+    if (strcasecmp(choice,"-erase:cfe128k")==0)      { run_option = 2;  strcpy(AREA_NAME, "CFE128");     }
     if (strcasecmp(choice,"-erase:nvram")==0)        { run_option = 2;  strcpy(AREA_NAME, "NVRAM");      }
     if (strcasecmp(choice,"-erase:kernel")==0)       { run_option = 2;  strcpy(AREA_NAME, "KERNEL");     }
+    if (strcasecmp(choice,"-erase:kernel64k")==0)    { run_option = 2;  strcpy(AREA_NAME, "KERNEL64");  }
+    if (strcasecmp(choice,"-erase:kernel128k")==0)   { run_option = 2;  strcpy(AREA_NAME, "KERNEL128"); }
     if (strcasecmp(choice,"-erase:wholeflash")==0)   { run_option = 2;  strcpy(AREA_NAME, "WHOLEFLASH"); }
     if (strcasecmp(choice,"-erase:custom")==0)       { run_option = 2;  strcpy(AREA_NAME, "CUSTOM");  custom_options++; }
 
     if (strcasecmp(choice,"-flash:cfe")==0)          { run_option = 3;  strcpy(AREA_NAME, "CFE");        }
+    if (strcasecmp(choice,"-flash:cfe64k")==0)       { run_option = 3;  strcpy(AREA_NAME, "CFE64");      }
+    if (strcasecmp(choice,"-flash:cfe128k")==0)      { run_option = 3;  strcpy(AREA_NAME, "CFE128");     }
     if (strcasecmp(choice,"-flash:nvram")==0)        { run_option = 3;  strcpy(AREA_NAME, "NVRAM");      }
     if (strcasecmp(choice,"-flash:kernel")==0)       { run_option = 3;  strcpy(AREA_NAME, "KERNEL");     }
+    if (strcasecmp(choice,"-flash:kernel64k")==0)    { run_option = 3;  strcpy(AREA_NAME, "KERNEL64");   }
+    if (strcasecmp(choice,"-flash:kernel128k")==0)   { run_option = 3;  strcpy(AREA_NAME, "KERNEL128");  }
     if (strcasecmp(choice,"-flash:wholeflash")==0)   { run_option = 3;  strcpy(AREA_NAME, "WHOLEFLASH"); }
     if (strcasecmp(choice,"-flash:custom")==0)       { run_option = 3;  strcpy(AREA_NAME, "CUSTOM");  custom_options++; }
 
@@ -1640,6 +1782,8 @@ int main(int argc, char** argv)
           else if (strcasecmp(choice,"/skipdetect")==0)      skipdetect = 1;
           else if (strncasecmp(choice,"/instrlen:",10)==0)   instrlen = strtoul(((char *)choice + 10),NULL,10);
           else if (strcasecmp(choice,"/wiggler")==0)         wiggler = 1;
+	  else if (strcasecmp(choice,"/bigendian")==0)       bigendian = 1;
+          else if (strcasecmp(choice,"/bigendianfile")==0)   bigendianfile = 1;		   
           else
           {
              show_usage();

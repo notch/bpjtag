@@ -5,6 +5,20 @@
 //  Note:
 //  This program is for De-Bricking the WRT54G/GS routers
 //
+//  New for cshore2 - Added 1 new Flash Chip Parts to the list:
+//                     - MX29LV640MB 4Mx16 BotB    (8MB)
+//                  - Fixed bug in wiggler cable support
+//                     - Wiggler uses Pin 11 not Pin 13
+//
+//  New for cshore1 - Added 1 new Flash Chip Parts to the list:
+//                     - MBM29DL32BF 2Mx16 BotB      (4MB)
+//                  - Added the following New Switch Options
+//                     - /bigendian ......... CPU is bigendian
+//                     - /bigendianfile ..... image file is bigendian
+//                  - Added support for 64k and 128k CFE
+//                  - Added support for DMA on bigendian CPU (using 
+//                       the new /bigendian swith)
+//
 //  New for v4.8 - Added 2 new Flash Chip Parts to the list:
 //                     - SST39VF6401B 4Mx16 BotB     (8MB)
 //                     - SST39VF6402B 4Mx16 TopB     (8MB)
@@ -239,7 +253,7 @@ void test_reset(void);
 void WriteData(unsigned int in_data);
 void ExecuteDebugModule(unsigned int *pmodule);
 void check_ejtag_features(void);
-
+unsigned int swap_bytes(unsigned int data, int num_bytes);
 
 unsigned int pracc_readword_code_module[] = {
                // #

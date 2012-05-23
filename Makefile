@@ -2,10 +2,15 @@ CFLAGS += -Wall -O2
 
 WRT54GMEMOBJS = wrt54g.o
 
-all: wrt54g
+SWITCHOBJS = switchend.o
 
-wrt54g: $(WRT54GMEMOBJS)
+all: debrick switchend
+
+debrick: $(WRT54GMEMOBJS)
 	gcc $(CFLAGS) -o $@ $(WRT54GMEMOBJS)
 
+switchend: $(SWITCHOBJS)
+	gcc $(CFLAGS) -o $@ $(SWITCHOBJS)
+
 clean:
-	rm -rf *.o wrt54g
+	rm -rf *.o debrick switchend

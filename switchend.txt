@@ -1,0 +1,24 @@
+switchend is a simple endianness changer for use with HairyDairyMaid's 
+Debrick utility.  To use it give it the binary to change in standard input
+and take the switched end off standard input.
+
+It is very trivial; it just take four bytes and swaps the order (so 1234
+becomes 4321).  For the last few bytes of the file it swaps the number of bytes
+left (e.g. if there are 3 bytes after the rest ofthe file is processed
+switched will make 123 into 321 not <null>321, which is would happen if there
+weren't special case for this).
+
+E.g. On Linux:
+
+cat bigendian-file.bin | switchend >littlendian-file.bin
+
+and
+
+cat littleendian-file.bin | switchend >bigendian-file.bin
+
+Good Luck!
+
+- Daniel Dickinson (cshore)
+
+----
+(C) 2009 Daniel Dickinson, for license see the file COPYING in this folder
