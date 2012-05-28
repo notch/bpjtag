@@ -1,11 +1,11 @@
 CFLAGS += -Wall -O2
 
-WRT54GMEMOBJS = tjtag.o
+BRJTAGOBJS = brjtag.o
 
-all: tjtag
+all: brjtag
 
-wrt54g: $(WRT54GMEMOBJS)
-	gcc $(CFLAGS) -o $@ $(WRT54GMEMOBJS)
+brjtag: $(BRJTAGOBJS)
+	gcc $(CFLAGS) -o $@ $(BRJTAGOBJS)
 
 clean:
-	rm -rf *.o tjtag
+	rm -rf *.o brjtag
